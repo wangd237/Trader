@@ -1,1 +1,4 @@
-\n  Trader\n  Multi-Agent Market Research CLI\n\n
+
+  Trader
+  Multi-Agent Market Research CLI
+
