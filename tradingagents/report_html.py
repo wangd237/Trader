@@ -18,12 +18,12 @@ from tradingagents.reporting import analyst_names
 # Ratings by direction, so the page can show which way the call leans.
 _TONE = {"Buy": "up", "Overweight": "up", "Hold": "level", "Underweight": "down", "Sell": "down"}
 
-# The Tauric Research logo as published (tauric.ai/brand/tauric-logo.svg), drawn
-# in the page so it loads nothing.
-_LOGO = files("tradingagents").joinpath("assets/tauric-logo.svg").read_text(encoding="utf-8").strip()
-_COMPANY = "https://tauric.ai"
-_ORG = "https://github.com/TauricResearch"
-_PROJECT = f"{_ORG}/TradingAgents"
+# Trader uses a small local, inert SVG placeholder instead of upstream branding.
+_LOGO = files("tradingagents").joinpath("assets/trader-logo.svg").read_text(encoding="utf-8").strip()
+_COMPANY = "https://github.com/wangd237/Trader"
+_ORG = "https://github.com/wangd237"
+_PROJECT = f"{_ORG}/Trader"
+_UPSTREAM = "https://github.com/TauricResearch/TradingAgents"
 
 _CSS = """
 :root {
@@ -239,7 +239,7 @@ def _run_details(final_state: dict, settings: dict | None) -> list[tuple[str, st
             details.append(("Data vendors", " ".join(
                 _group(_CATEGORY.get(k, k), _chain(v)) for k, v in vendors.items()
             )))
-        details.append(("Version", escape(f"TradingAgents {s('version', '?')}")))
+        details.append(("Version", escape(f"Trader {s('version', '?')}")))
     if final_state.get("memory_note"):
         details.append(("Memory log", escape(final_state["memory_note"])))
     return details
@@ -282,13 +282,13 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts) 
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
-<title>{escape(page_title)}: TradingAgents report</title>
+<title>{escape(page_title)}: Trader report</title>
 <style>{_CSS}</style>
 </head>
 <body>
 <div class="page" id="top">
 <header class="masthead">
-<a class="logo" href="{_COMPANY}" rel="noopener" aria-label="Tauric Research">{_LOGO}</a>
+<a class="logo" href="{_COMPANY}" rel="noopener" aria-label="Trader">{_LOGO}</a>
 <h1>{title}</h1>
 <p class="date">{escape(f"Analysis of {date}" if date else "Analysis")}</p>
 <dl class="run">{details}</dl>
@@ -297,7 +297,7 @@ def render_report(ticker: str, final_state: dict, settings: dict | None, parts) 
 <main>
 {"".join(body)}
 </main>
-<footer class="credit"><a href="{_PROJECT}" rel="noopener">TradingAgents</a> powered by <a class="brand" href="{_ORG}" rel="noopener">Tauric Research</a></footer>
+<footer class="credit"><a href="{_PROJECT}" rel="noopener">Trader</a> based on <a class="brand" href="{_UPSTREAM}" rel="noopener">TradingAgents</a></footer>
 </div>
 <a class="to-top" href="#top">Top</a>
 </body>

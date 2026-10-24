@@ -1,4 +1,4 @@
-"""TradingAgents: multi-agent LLM financial trading framework."""
+"""Trader: multi-agent market research, derived from TradingAgents."""
 
 __version__ = "0.7.0"
 

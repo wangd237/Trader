@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tradingagents"
+name = "trader"
 dynamic = ["version"]
-description = "TradingAgents: Multi-Agents LLM Financial Trading Framework"
+description = "Trader: collaborative multi-agent market research framework"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -37,13 +37,13 @@ dev = [
     "pytest-subtests>=0.13",
 ]
 # Amazon Bedrock support (AWS SigV4 auth + boto3). Optional so the core install
-# stays lean: pip install "tradingagents[bedrock]".
+# stays lean: pip install "trader[bedrock]".
 bedrock = [
     "langchain-aws>=1.7.9",
 ]
 
 [project.scripts]
-tradingagents = "cli.main:app"
+trader = "cli.main:app"
 
 [tool.setuptools.dynamic]
 version = {attr = "tradingagents.__version__"}

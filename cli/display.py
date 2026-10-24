@@ -184,9 +184,9 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     # Header with welcome message
     layout["header"].update(
         Panel(
-            "[bold green]Welcome to TradingAgents CLI[/bold green]\n"
-            "[dim]© [Tauric Research](https://github.com/TauricResearch)[/dim]",
-            title="Welcome to TradingAgents",
+            "[bold green]Welcome to Trader CLI[/bold green]\n"
+            "[dim]Trader · based on TradingAgents[/dim]",
+            title="Welcome to Trader",
             border_style="green",
             padding=(1, 2),
             expand=True,

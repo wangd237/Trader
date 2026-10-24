@@ -34,7 +34,7 @@ def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
         else:   # each tier on its own provider (#1440)
             models = (f"deep {deep_provider} {s('deep_think_llm', '?')}, "
                       f"quick {quick_provider} {s('quick_think_llm', '?')}")
-        lines.append(f"- TradingAgents {s('version', '?')}: {models}")
+        lines.append(f"- Trader {s('version', '?')}: {models}")
         lines.append(f"- Analysts: {', '.join(analyst_names(s('analysts')))}; "
                      f"research debate rounds {s('max_debate_rounds', '?')}, "
                      f"risk debate rounds {s('max_risk_discuss_rounds', '?')}")

@@ -118,18 +118,18 @@ def _prompt_selections(prefs, flags):
         welcome_ascii = f.read()
 
     welcome_content = f"{welcome_ascii}\n"
-    welcome_content += "[bold green]TradingAgents: Multi-Agents LLM Financial Trading Framework - CLI[/bold green]\n\n"
+    welcome_content += "[bold green]Trader: Multi-Agent Market Research - CLI[/bold green]\n\n"
     welcome_content += "[bold]Workflow Steps:[/bold]\n"
     welcome_content += "I. Analyst Team → II. Research Team → III. Trader → IV. Risk Management → V. Portfolio Management\n\n"
     welcome_content += (
-        "[dim]Built by [Tauric Research](https://github.com/TauricResearch)[/dim]"
+        "[dim]Trader · derived from [TradingAgents](https://github.com/TauricResearch/TradingAgents)[/dim]"
     )
 
     welcome_box = Panel(
         welcome_content,
         border_style="green",
         padding=(1, 2),
-        title="Welcome to TradingAgents",
+        title="Welcome to Trader",
         subtitle="Multi-Agents LLM Financial Trading Framework",
     )
     console.print(Align.center(welcome_box))
@@ -138,7 +138,7 @@ def _prompt_selections(prefs, flags):
 
     # What's new comes from a cache refreshed in the background, and only for
     # someone at a terminal: a run never waits on it and unattended runs skip it.
-    if updates.enabled():
+    if os.environ.get("TRADER_ENABLE_UPSTREAM_NOTICES") == "1" and updates.enabled():
         updates.show(console)
         updates.start_background_refresh()
 

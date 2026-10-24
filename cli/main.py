@@ -27,8 +27,8 @@ else:
     _NO_CONSOLE_ERRORS = ()
 
 app = typer.Typer(
-    name="TradingAgents",
-    help="TradingAgents CLI: Multi-Agents LLM Financial Trading Framework",
+    name="Trader",
+    help="Trader CLI: multi-agent market research",
     add_completion=True,  # Enable shell completion
 )
 
@@ -69,7 +69,7 @@ def analyze(
         help="Save the report as one HTML page too, complete_report.html, without asking (default: yes)",
     ),
 ):
-    """Run an analysis. This is what a bare `tradingagents` does.
+    """Run an analysis. This is what a bare `trader` does.
 
     Flags answer their questions; with provider, models, depth and language also
     set through TRADINGAGENTS_* variables, the run asks nothing.
