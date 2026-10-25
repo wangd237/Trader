@@ -38,10 +38,20 @@ def test_unified_env_runs_cli_without_provider_prompts(monkeypatch):
 
 
 @pytest.mark.unit
-def test_env_example_contains_only_three_llm_fields():
+def test_env_example_exposes_only_three_llm_fields_and_two_run_settings():
     from pathlib import Path
 
     env_file = Path(__file__).resolve().parents[1] / ".env.example"
     lines = env_file.read_text(encoding="utf-8").splitlines()
-    fields = [line.split("=", 1)[0] for line in lines if line.strip() and not line.startswith("#")]
-    assert fields == ["LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL"]
+    settings = dict(
+        line.split("=", 1) for line in lines if line.strip() and not line.startswith("#")
+    )
+    assert list(settings) == [
+        "LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL",
+        "TRADINGAGENTS_OUTPUT_LANGUAGE", "TRADINGAGENTS_RESULTS_DIR",
+    ]
+    assert settings["LLM_API_KEY"] == ""  # template must not ship a credential
+    assert settings["LLM_MODEL"] == "deepseek-flash"
+    assert settings["LLM_BASE_URL"] == "https://api.deepseek.com"
+    assert settings["TRADINGAGENTS_OUTPUT_LANGUAGE"] == "Chinese"
+    assert settings["TRADINGAGENTS_RESULTS_DIR"] == r"E:\Trader_Reports"

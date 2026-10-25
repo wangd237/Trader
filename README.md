@@ -60,7 +60,7 @@ LLM_BASE_URL=https://api.deepseek.com/v1
 - 已知兼容接口自动路由到已有的专用客户端（如 DeepSeek）；其他兼容接口使用通用客户端。Anthropic / Gemini **原生** API 不能直接填写，需要厂商提供的 OpenAI-compatible 接口。
 - 所有 Agent 使用同一个模型；模型还必须支持 Trader 需要的 Tool Calling 等功能，否则完整运行可能失败。
 
-**三层配置**：项目默认值 → 原有 `TRADINGAGENTS_*` 高级覆盖 → 三个 `LLM_*` 统一字段（最高优先级，仅覆盖 LLM 相关选项）。`.env.example` 对 LLM 只保留三个字段，其他非 LLM 运行设置在内部使用默认值。原有高级配置仍兼容，但不需要用户填写。
+**三层配置**：项目默认值 → 原有 `TRADINGAGENTS_*` 高级覆盖 → 三个 `LLM_*` 统一字段（最高优先级，仅覆盖 LLM 相关选项）。`.env.example` 的 LLM 设置仍只有三个字段，另外提供两个常用运行参数：`TRADINGAGENTS_OUTPUT_LANGUAGE=Chinese`（中文报告）和 `TRADINGAGENTS_RESULTS_DIR=E:\Trader_Reports`（Windows 结果根目录示例）。在其他设备上请修改该路径；其余高级配置仍然可选。
 
 **请勿把真实密钥提交到 Git。**
 
@@ -80,7 +80,7 @@ trader --ticker NVDA --date 2026-10-20 --analysts market,news --save --no-show
 trader backtest NVDA --start 2026-09-01 --end 2026-09-15 --every 7
 ~~~
 
-使用三字段模式时，CLI 自动使用内置默认输出语言与辩论轮数，不再要求提供额外的 Provider、模型层级或语言环境变量。其他模式仍支持参考项目的原始交互配置。原始 Python 入口 `python main.py` 也保留，用于演示直接调用 Graph 类。
+使用三字段模式时，CLI 自动使用配置的输出语言（未设置时为 English）与内置默认辩论轮数，不再要求提供额外的 Provider 或模型层级变量。其他模式仍支持参考项目的原始交互配置。原始 Python 入口 `python main.py` 也保留，用于演示直接调用 Graph 类。
 
 运行结果默认写入用户目录下的 `~/.tradingagents/logs`，行情缓存和决策记忆位于同级目录；具体位置可用 .env 中的相关设置覆盖。报告包括 Markdown，以及可选的独立 HTML 页面；无需网页服务。
 
