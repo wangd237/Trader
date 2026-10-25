@@ -44,27 +44,43 @@ python -m pip install -e ".[dev]"
 Copy-Item .env.example .env
 ~~~
 
-打开 .env，根据所使用的模型提供商填入密钥，并选择相应的 Provider 与模型。比如，使用 OpenAI API 时，至少需要设置 OPENAI_API_KEY；也可以改用参考框架支持的其他提供商。**请勿把真实密钥提交到 Git。**
+打开 .env，只需填写三个 **LLM** 字段（以下为 DeepSeek 示例）：
 
-**兼容性约定**：为了不批量改动核心源码，本阶段保留 Python 内部包名 `tradingagents` 和 `TRADINGAGENTS_*` 环境变量前缀；对外项目名称、安装包名称、主 CLI 命令均为 **Trader / trader**。这只是移植兼容性措施，不代表需要安装另一个同名项目。
+~~~env
+LLM_API_KEY=你的密钥
+LLM_MODEL=deepseek-chat
+LLM_BASE_URL=https://api.deepseek.com/v1
+~~~
+
+- `LLM_API_KEY`：由实际服务商签发，不能随便拿另一家的 Key 使用；仅本机 `localhost` / `127.0.0.1` / `::1` 可留空。
+- `LLM_MODEL`：接口支持的真实模型 ID（例如 `deepseek-chat`、`gpt-4o`、`qwen-plus`）。
+- `LLM_BASE_URL`：兼容 OpenAI 的 **API 根地址**，不能填写完整的 `/chat/completions` 请求地址；远程必须用 HTTPS。
+- 例如 OpenAI 原生地址 `https://api.openai.com/v1`，OpenRouter `https://openrouter.ai/api/v1`，本地 Ollama `http://localhost:11434/v1`。
+- URL 与模型共同决定实际的 Provider；Key 仅用于这个接口的鉴权，**不通过 Key 前缀猜测服务商**。
+- 已知兼容接口自动路由到已有的专用客户端（如 DeepSeek）；其他兼容接口使用通用客户端。Anthropic / Gemini **原生** API 不能直接填写，需要厂商提供的 OpenAI-compatible 接口。
+- 所有 Agent 使用同一个模型；模型还必须支持 Trader 需要的 Tool Calling 等功能，否则完整运行可能失败。
+
+**三层配置**：项目默认值 → 原有 `TRADINGAGENTS_*` 高级覆盖 → 三个 `LLM_*` 统一字段（最高优先级，仅覆盖 LLM 相关选项）。`.env.example` 对 LLM 只保留三个字段，其他非 LLM 运行设置在内部使用默认值。原有高级配置仍兼容，但不需要用户填写。
+
+**请勿把真实密钥提交到 Git。**
 
 ## 使用
 
 ~~~powershell
-# 交互式引导选择标的、分析日期、分析师与模型
+# 交互式引导选择标的、分析日期和分析师（模型从 .env 读取）
 trader
 
 # 查看可用参数
 trader --help
 
-# 已在 .env 填入运行参数后，可使用无交互选项
+# 配置上述三个 LLM 字段后，可使用无交互选项
 trader --ticker NVDA --date 2026-10-20 --analysts market,news --save --no-show
 
 # 可选：回测 (会消耗模型调用额度)
 trader backtest NVDA --start 2026-09-01 --end 2026-09-15 --every 7
 ~~~
 
-无交互执行除上述参数外，还需配置模型提供商、模型、输出语言和辩论轮数等；缺少必要项时 CLI 会提示。原始 Python 入口 `python main.py` 也保留，用于演示直接调用 Graph 类。
+使用三字段模式时，CLI 自动使用内置默认输出语言与辩论轮数，不再要求提供额外的 Provider、模型层级或语言环境变量。其他模式仍支持参考项目的原始交互配置。原始 Python 入口 `python main.py` 也保留，用于演示直接调用 Graph 类。
 
 运行结果默认写入用户目录下的 `~/.tradingagents/logs`，行情缓存和决策记忆位于同级目录；具体位置可用 .env 中的相关设置覆盖。报告包括 Markdown，以及可选的独立 HTML 页面；无需网页服务。
 
@@ -102,7 +118,8 @@ GitHub Actions 会在提交时执行多版本 Python 测试、干净安装检查
 | README / 变更记录重新编写 | 完成 | 不使用参考项目 README 文案和图片 |
 | 原项目图片资源 | 不移植 | HTML 报告改用小型本地 SVG 占位图 |
 | 旧项目公告与发布流程 | 已隔离 | 默认不请求参考项目的公告接口 |
-| CI / 回归测试 | 通过 | Python 3.11 / 3.12 / 3.13 / 3.14、lint 与干净安装均通过 |
+| CI / 回归测试 | 重新验证中 | 新增统一 LLM 配置及 CLI 测试，待最新 Actions 结果 |
+| 统一 LLM API 接入 | 已实现，验证中 | 三字段、URL 路由、统一 factory、原厂兼容逻辑复用 |
 | 真实模型 + 数据源 E2E | 未验证 | 需配置密钥后进行实际运行 |
 | 复杂网页端 | 不在当前范围 | 以 CLI 和报告输出为主 |
 

@@ -60,14 +60,15 @@ def unattended_gaps(flags) -> list[str]:
     env = os.environ.get
     gaps = [f"--{name}" for name in ("ticker", "date", "analysts") if flags.get(name) is None]
     gaps += [f"--{name} or --no-{name}" for name in ("save", "show") if flags.get(name) is None]
-    if not env("TRADINGAGENTS_OUTPUT_LANGUAGE"):
-        gaps.append("TRADINGAGENTS_OUTPUT_LANGUAGE")
-    if not depth_from_env():
-        gaps.append("TRADINGAGENTS_MAX_DEBATE_ROUNDS and TRADINGAGENTS_MAX_RISK_ROUNDS")
-    if not env("TRADINGAGENTS_LLM_PROVIDER"):
-        gaps.append("TRADINGAGENTS_LLM_PROVIDER")
-    if not (env("TRADINGAGENTS_QUICK_THINK_LLM") or env("TRADINGAGENTS_DEEP_THINK_LLM")):
-        gaps.append("TRADINGAGENTS_QUICK_THINK_LLM or TRADINGAGENTS_DEEP_THINK_LLM")
+    if not DEFAULT_CONFIG.get("unified_llm"):
+        if not env("TRADINGAGENTS_OUTPUT_LANGUAGE"):
+            gaps.append("TRADINGAGENTS_OUTPUT_LANGUAGE")
+        if not depth_from_env():
+            gaps.append("TRADINGAGENTS_MAX_DEBATE_ROUNDS and TRADINGAGENTS_MAX_RISK_ROUNDS")
+        if not env("TRADINGAGENTS_LLM_PROVIDER"):
+            gaps.append("TRADINGAGENTS_LLM_PROVIDER")
+        if not (env("TRADINGAGENTS_QUICK_THINK_LLM") or env("TRADINGAGENTS_DEEP_THINK_LLM")):
+            gaps.append("TRADINGAGENTS_QUICK_THINK_LLM or TRADINGAGENTS_DEEP_THINK_LLM")
     return gaps
 
 
@@ -80,6 +81,10 @@ def _check_tier_providers(main_provider: str, backend_url: str | None = None) ->
     rather than at its first call, which for the deep tier comes after everything
     else has been paid for; a provider no tier uses needs no key.
     """
+    # Unified LLM_* has already validated its endpoint/key; do not ask for
+    # legacy provider-specific environment variables or sign-in here.
+    if DEFAULT_CONFIG.get("unified_llm"):
+        return
     used = []
     for tier in ("quick", "deep"):
         provider = (DEFAULT_CONFIG.get(f"{tier}_think_provider") or main_provider).lower()
@@ -200,7 +205,7 @@ def _prompt_selections(prefs, flags):
         analysis_date = get_analysis_date()
 
     # Step 3: Output language (skipped when set via TRADINGAGENTS_OUTPUT_LANGUAGE)
-    if os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE"):
+    if os.environ.get("TRADINGAGENTS_OUTPUT_LANGUAGE") or DEFAULT_CONFIG.get("unified_llm"):
         output_language = DEFAULT_CONFIG["output_language"]
         console.print(
             f"[green]✓ Output language from environment:[/green] {output_language}"
@@ -233,7 +238,7 @@ def _prompt_selections(prefs, flags):
     # Research depth maps to the debate + risk round counts; when both are
     # supplied through TRADINGAGENTS_MAX_DEBATE_ROUNDS / _MAX_RISK_ROUNDS we keep
     # the run non-interactive and honor the env values (#977).
-    if depth_from_env():
+    if depth_from_env() or DEFAULT_CONFIG.get("unified_llm"):
         selected_research_depth = DEFAULT_CONFIG["max_debate_rounds"]
         console.print(
             f"[green]✓ Research depth from environment:[/green] "
@@ -252,7 +257,7 @@ def _prompt_selections(prefs, flags):
     # The backend URL comes from TRADINGAGENTS_LLM_BACKEND_URL when set,
     # otherwise the provider's default endpoint — the same value the menu
     # would have picked.
-    provider_from_env = bool(os.environ.get("TRADINGAGENTS_LLM_PROVIDER"))
+    provider_from_env = bool(os.environ.get("TRADINGAGENTS_LLM_PROVIDER")) or bool(DEFAULT_CONFIG.get("unified_llm"))
     if provider_from_env:
         selected_llm_provider = DEFAULT_CONFIG["llm_provider"].lower()
         backend_url = resolve_backend_url(
@@ -300,7 +305,8 @@ def _prompt_selections(prefs, flags):
     _check_tier_providers(selected_llm_provider, backend_url)
 
     # Step 7: Thinking agents (skipped when either model is set via environment)
-    if os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM") or os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM"):
+    if (DEFAULT_CONFIG.get("unified_llm") or os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM")
+            or os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM")):
         selected_shallow_thinker = DEFAULT_CONFIG["quick_think_llm"]
         selected_deep_thinker = DEFAULT_CONFIG["deep_think_llm"]
         console.print(
