@@ -118,7 +118,7 @@ GitHub Actions 会在提交时执行多版本 Python 测试、干净安装检查
 | README / 变更记录重新编写 | 完成 | 不使用参考项目 README 文案和图片 |
 | 原项目图片资源 | 不移植 | HTML 报告改用小型本地 SVG 占位图 |
 | 旧项目公告与发布流程 | 已隔离 | 默认不请求参考项目的公告接口 |
-| CI / 回归测试 | 重新验证中 | 新增统一 LLM 配置及 CLI 测试，待最新 Actions 结果 |
+| CI / 回归测试 | 通过 | 统一 LLM 版本 [Actions 6/6 验收通过](https://github.com/wangd237/Trader/actions/runs/40165124161) |
 | 统一 LLM API 接入 | 已实现，验证中 | 三字段、URL 路由、统一 factory、原厂兼容逻辑复用 |
 | 真实模型 + 数据源 E2E | 未验证 | 需配置密钥后进行实际运行 |
 | 复杂网页端 | 不在当前范围 | 以 CLI 和报告输出为主 |
@@ -126,6 +126,8 @@ GitHub Actions 会在提交时执行多版本 Python 测试、干净安装检查
 后续所有功能增量都应在对应提交中同步更新本进展表，不提前把未验收能力写成已完成。
 
 ## 已执行的验收
+
+- [统一 LLM 三字段接入回归](https://github.com/wangd237/Trader/actions/runs/40165124161)：全部 6 个 Actions 作业通过，Python 3.11 有 1384 passed（此外 100 subtests passed，1 skipped、1 deselected）；其余测试矩阵也全部通过。
 
 - [GitHub Actions 基线验收](https://github.com/wangd237/Trader/actions/runs/40097374085)：所有 6 个检查作业通过。Python 3.11 中为 1361 passed、1 skipped、1 deselected（另有 100 个通过的 subtests）；其他 Python 版本测试也通过。
 - 验收覆盖无密钥单测、受控模拟、安装检查和代码风格；**尚未使用真实模型密钥进行端到端金融分析**。

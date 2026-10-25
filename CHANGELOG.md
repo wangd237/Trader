@@ -4,7 +4,7 @@
 - 精确 Host 匹配路由已知 OpenAI-compatible 厂商，未知地址复用通用兼容客户端；拒绝不安全或原生非兼容端点。
 - 将统一密钥经客户端工厂注入，不写入运行参数、报告或检查点签名；保留原始 Provider 高级配置以维持兼容。
 - CLI 统一模式自动跳过模型/Provider/语言/深度环境变量要求；增加配置和调用测试。
-- 本变更尚待最新 CI 回归验证，真实 LLM 请求需自行配置有效 Key。
+- CI 已验证通过：[GitHub Actions 6/6](https://github.com/wangd237/Trader/actions/runs/40165124161)，Python 3.11 单测 1384 passed；真实 LLM 请求仍需自行配置有效 Key。
 
 # Trader 更新记录
 
