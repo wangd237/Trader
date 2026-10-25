@@ -152,5 +152,9 @@ def create_tier_client(config: dict, tier: str, **extra) -> BaseLLMClient:
     else:
         base_url = config.get(f"{tier}_think_backend_url")
     kwargs = build_llm_kwargs({**config, "llm_provider": provider})
+    if config.get("unified_llm"):
+        # Credential stays outside run settings, reports and checkpoint fingerprints.
+        import os
+        kwargs["api_key"] = os.environ.get("LLM_API_KEY") or "EMPTY"
     return create_llm_client(provider=provider, model=config[f"{tier}_think_llm"], base_url=base_url,
                              **kwargs, **extra)
