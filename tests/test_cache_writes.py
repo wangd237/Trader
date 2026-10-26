@@ -1,5 +1,5 @@
-"""Cache files are replaced whole: a reader never sees a half-written file, and
-concurrent writers (tool calls run in parallel) never share a temp file."""
+"""缓存文件采用整体替换，读取者不会看到只写入一半的文件；
+并发工具调用的写入者也不能共享临时文件。"""
 
 import os
 from pathlib import Path
@@ -68,8 +68,8 @@ def test_a_replaced_file_keeps_the_usual_permissions(tmp_path):
 
 @pytest.mark.unit
 def test_a_file_held_open_elsewhere_keeps_its_old_content(monkeypatch, tmp_path):
-    """On Windows a file another reader has open cannot be replaced; the cache
-    write is skipped rather than failing the call that produced the data."""
+    """Windows 中正在被其他读取者打开的文件无法替换；
+    此时跳过缓存写入，而不是让产生数据的请求失败。"""
     from tradingagents.dataflows import files
 
     target = tmp_path / "cache.csv"
@@ -86,7 +86,8 @@ def test_a_file_held_open_elsewhere_keeps_its_old_content(monkeypatch, tmp_path)
 
 
 def _fake_msvcrt(results):
-    """msvcrt whose locking() raises the next error in ``results``, or succeeds on None."""
+    """模拟 msvcrt.locking()：按 ``results`` 中的顺序抛出异常，
+    遇到 None 时表示加锁成功。"""
     import types
 
     calls = []

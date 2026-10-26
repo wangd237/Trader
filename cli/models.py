@@ -3,8 +3,7 @@ from enum import StrEnum
 
 class AnalystType(StrEnum):
     MARKET = "market"
-    # Wire value stays "social" for saved-config and string-keyed-caller
-    # back-compat; the user-facing label is "Sentiment Analyst".
+    # 序列化标识保持 "social"，兼容旧配置和字符串键调用者。
     SOCIAL = "social"
     NEWS = "news"
     FUNDAMENTALS = "fundamentals"

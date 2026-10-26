@@ -1,10 +1,8 @@
-"""What the agents are actually told.
+"""测试 Agent 最终实际收到的提示词。
 
-Three problems the audit found: one analyst's brief reached the model as a Python
-tuple, every analyst was asked for a trade call that nothing reads, and a report
-that was never produced was presented as an empty labelled section, which invites
-the next agent to fill it in from nothing.
-"""
+审计发现过三个问题：有一位分析师的指令被误传为 Python 元组；
+所有分析师被要求输出无人使用的交易决策；
+未生成的报告被展示成空章节，诱导下游 Agent 凭空补全。"""
 
 from __future__ import annotations
 
@@ -18,8 +16,8 @@ ANALYSTS = ["market_analyst", "sentiment_analyst", "news_analyst", "fundamentals
 @pytest.mark.unit
 @pytest.mark.parametrize("name", ANALYSTS)
 def test_an_analyst_brief_is_text_not_a_python_object(name):
-    """A trailing comma made one brief a tuple, so the model was handed its repr
-    (quotes, parens and all) instead of the instruction."""
+    """尾部逗号把分析师指令变成了元组，模型收到的是带括号和引号的 repr，
+    而非预期的纯文本指令。"""
     import ast
     import inspect
 
@@ -36,8 +34,8 @@ def test_an_analyst_brief_is_text_not_a_python_object(name):
 @pytest.mark.unit
 @pytest.mark.parametrize("name", ANALYSTS)
 def test_an_analyst_is_not_asked_for_a_trade_call_nothing_reads(name):
-    """The stop signal is never consumed, and asking for it makes an analyst
-    open with a direction that then travels as evidence."""
+    """停止信号无人消费；要求分析师给出该信号，
+    会让报告先输出方向判断，并被下游错误当作事实依据。"""
     import inspect
 
     mod = importlib.import_module(f"tradingagents.agents.analysts.{name}")
@@ -53,8 +51,8 @@ def test_an_analyst_is_not_asked_for_a_trade_call_nothing_reads(name):
     ("tradingagents.agents.risk_mgmt.neutral_debator", "create_neutral_debator"),
 ])
 def test_a_report_that_was_never_produced_says_so(module, factory):
-    """`--analysts market` leaves three reports empty; presenting them as blank
-    sections invites the model to invent the contents."""
+    """只选择市场分析师时，其余三个报告为空；
+    若仍显示空章节，下游模型可能自行编造缺失内容。"""
     from langchain_core.messages import AIMessage
 
     mod = importlib.import_module(module)

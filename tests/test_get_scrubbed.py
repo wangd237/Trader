@@ -1,9 +1,8 @@
-"""``get_scrubbed``: the vendor key must not survive into an error.
+"""验证 ``get_scrubbed`` 不在异常中泄漏数据源 API Key。
 
-FRED and Alpha Vantage authenticate with a query parameter, so requests quotes
-the key back in the text of HTTP, connection and timeout errors, and in the
-``request`` and ``response`` it attaches (#1324).
-"""
+FRED 与 Alpha Vantage 在 URL 查询参数中传入密钥；
+requests 抛出的 HTTP/连接/超时异常可能包含完整 URL，
+其 request、response 属性也可能保存密钥（#1324）。"""
 
 from unittest import mock
 
@@ -12,7 +11,7 @@ import requests
 
 from tradingagents.dataflows.net import get_scrubbed
 
-# A fabricated value in the shape of a FRED key.
+# 使用模拟 FRED 密钥格式的虚构测试值。
 _KEY = "deadbeefdeadbeefdeadbeefdeadbeef"
 _LEAK = (
     "HTTPSConnectionPool(host='api.stlouisfed.org', port=443): Max retries "
@@ -46,7 +45,7 @@ def test_the_key_is_masked_in_the_error(failure):
 
 @pytest.mark.unit
 def test_nothing_that_holds_the_url_travels_with_the_error():
-    """The request, the response and a chained original each carry the full URL."""
+    """请求对象、响应对象及原始异常链中都包含完整 URL。"""
     leaky = requests.ConnectionError(_LEAK)
     leaky.request = mock.Mock(url=f"https://x.invalid/?api_key={_KEY}")
     leaky.response = mock.Mock(url=f"https://x.invalid/?api_key={_KEY}")

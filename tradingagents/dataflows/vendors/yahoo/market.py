@@ -24,31 +24,29 @@ def get_YFin_data_online(
     datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
-    # Resolve broker/forex symbols to Yahoo's convention (XAUUSD+ -> GC=F).
+    # 将券商或外汇代码转换为 Yahoo 格式，例如 XAUUSD+ → GC=F。
     canonical = normalize_symbol(symbol)
 
-    # yfinance treats ``end`` as EXCLUSIVE, so it would drop the requested
-    # end_date row (and the current day when end_date is today). Request one day
-    # past end_date so the requested range is actually inclusive (#986/#987).
+    # yfinance 的 ``end`` 是不包含的右边界，会漏掉用户要求的
+    # end_date 当天（若为今天则漏掉今日）的数据。
+    # 因此向接口请求时把结束日期向后移动一天（#986/#987）。
     end_inclusive = (end_dt + relativedelta(days=1)).strftime("%Y-%m-%d")
     data = yf_retry(lambda: yf.Ticker(canonical).history(start=start_date, end=end_inclusive))
 
-    # Empty result means the symbol is unknown/delisted. Raise a typed error
-    # instead of returning prose: the routing layer turns it into a single
-    # unambiguous "no data" signal so the agent never fabricates a price.
+    # 空结果可能表示代码未知或已经退市。抛出结构化异常而非返回文字，
+    # 让路由层生成明确的无数据标记，避免 Agent 编造价格。
     if data is None or data.empty:
         raise_for_empty(symbol, canonical, f"rows between {start_date} and {end_date}")
 
-    # Remove timezone info from index for cleaner output
+    # 移除索引中的时区信息，简化输出。
     if data.index.tz is not None:
         data.index = data.index.tz_localize(None)
 
-    # Reject a stale frame (e.g. a year-old partial response) before it is
-    # formatted into the report. Raises NoMarketDataError, which the router
-    # turns into one clear unavailable signal (#1021).
+    # 格式化报告前拒绝过期数据（如只返回一年前的部分记录）。
+    # 抛出 NoMarketDataError，让路由器统一报告不可用（#1021）。
     _assert_ohlcv_not_stale(data, end_date, symbol, canonical)
 
-    # Round numerical values to 2 decimal places for cleaner display
+    # 数值保留两位小数，便于展示。
     numeric_columns = ["Open", "High", "Low", "Close", "Adj Close"]
     for col in numeric_columns:
         if col in data.columns:
@@ -56,8 +54,7 @@ def get_YFin_data_online(
 
     csv_string = data.to_csv()
 
-    # Name the resolved symbol when it differs, so the reader sees which
-    # instrument was priced.
+    # 规范化后的 ticker 与原输入不同，报告中应注明实际查询的标的。
     label = canonical if canonical == symbol.upper() else f"{canonical} (from {symbol})"
     header = f"# Stock data for {label} from {start_date} to {end_date}\n"
     header += f"# Total records: {len(data)}\n\n"
@@ -75,7 +72,7 @@ def get_stock_stats_indicators_window(
 ) -> str:
 
     best_ind_params = {
-        # Moving Averages
+        # 移动平均线指标。
         "close_50_sma": (
             "50 SMA: A medium-term trend indicator. "
             "Usage: Identify trend direction and serve as dynamic support/resistance. "
@@ -91,7 +88,7 @@ def get_stock_stats_indicators_window(
             "Usage: Capture quick shifts in momentum and potential entry points. "
             "Tips: Prone to noise in choppy markets; use alongside longer averages for filtering false signals."
         ),
-        # MACD Related
+        # MACD 相关指标。
         "macd": (
             "MACD: Computes momentum via differences of EMAs. "
             "Usage: Look for crossovers and divergence as signals of trend changes. "
@@ -107,13 +104,13 @@ def get_stock_stats_indicators_window(
             "Usage: Visualize momentum strength and spot divergence early. "
             "Tips: Can be volatile; complement with additional filters in fast-moving markets."
         ),
-        # Momentum Indicators
+        # 动量指标。
         "rsi": (
             "RSI: Measures momentum to flag overbought/oversold conditions. "
             "Usage: Apply 70/30 thresholds and watch for divergence to signal reversals. "
             "Tips: In strong trends, RSI may remain extreme; always cross-check with trend analysis."
         ),
-        # Volatility Indicators
+        # 波动率指标。
         "boll": (
             "Bollinger Middle: A 20 SMA serving as the basis for Bollinger Bands. "
             "Usage: Acts as a dynamic benchmark for price movement. "
@@ -134,7 +131,7 @@ def get_stock_stats_indicators_window(
             "Usage: Set stop-loss levels and adjust position sizes based on current market volatility. "
             "Tips: It's a reactive measure, so use it as part of a broader risk management strategy."
         ),
-        # Volume-Based Indicators
+        # 成交量指标。
         "vwma": (
             "VWMA: A moving average weighted by volume. "
             "Usage: Confirm trends by integrating price action with volume data. "
@@ -156,18 +153,18 @@ def get_stock_stats_indicators_window(
     as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
     before = as_of_dt - relativedelta(days=look_back_days)
 
-    # Optimized: Get stock data once and calculate indicators for all dates
+    # 优化：行情只下载一次，然后计算全部日期对应的指标。
     try:
         indicator_data = _get_stock_stats_bulk(symbol, indicator, as_of_date)
 
-        # Generate the date range we need
+        # 生成需要计算的日期范围。
         current_dt = as_of_dt
         date_values = []
 
         while current_dt >= before:
             date_str = current_dt.strftime('%Y-%m-%d')
 
-            # Look up the indicator value for this date
+            # 查询当前日期对应的指标数值。
             if date_str in indicator_data:
                 indicator_value = indicator_data[date_str]
             else:
@@ -184,7 +181,7 @@ def get_stock_stats_indicators_window(
         raise  # Unknown/delisted symbol — let the router emit the sentinel
     except Exception as e:
         logger.warning("Bulk stockstats fetch failed, falling back per-day: %s", e)
-        # Fallback to original implementation if bulk method fails
+        # 批量计算失败时，回退到原始实现。
         ind_string = ""
         as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
         while as_of_dt >= before:
@@ -209,11 +206,9 @@ def _get_stock_stats_bulk(
     indicator: Annotated[str, "technical indicator to calculate"],
     as_of_date: Annotated[str, "current date for reference"]
 ) -> dict:
-    """
-    Optimized bulk calculation of stock stats indicators.
-    Fetches data once and calculates indicator for all available dates.
-    Returns dict mapping date strings to indicator values.
-    """
+    """批量计算股票技术指标的优化实现。
+    只获取一次历史行情，计算全部可用日期的指标，
+    返回日期字符串到指标值的字典。"""
     from stockstats import wrap
 
     data = load_ohlcv(symbol, as_of_date)
@@ -255,9 +250,9 @@ def get_stockstats_indicator(
     except VendorError:
         raise  # Unknown/delisted symbol — let the router emit the sentinel
     except Exception as e:
-        # An empty string renders as "2026-05-08: " in the indicator table, which
-        # reads as no value that day rather than a read that failed. Raise so the
-        # router can try the next vendor or report the series unavailable.
+        # 空字符串会在指标表中显示成“2026-05-08: ”，
+        # 这容易被理解为当天没有指标数据，而实际可能是读取失败。
+        # 应抛出异常，让路由层尝试下一提供商或报告序列不可用。
         raise NoMarketDataError(
             symbol, symbol, f"{indicator} could not be read for {as_of_date}: {e}"
         ) from e
@@ -266,7 +261,7 @@ def get_stockstats_indicator(
 
 
 def get_closes(symbol: str, start_date: str, end_date: str) -> pd.Series:
-    """Daily closes from ``start_date`` up to, not including, ``end_date``."""
+    """获取从 ``start_date`` 开始、到 ``end_date`` 之前的每日收盘价。"""
     canonical = normalize_symbol(symbol)
     history = yf_retry(lambda: yf.Ticker(canonical).history(start=start_date, end=end_date))
     return history["Close"] if history is not None and "Close" in history else pd.Series(dtype=float)

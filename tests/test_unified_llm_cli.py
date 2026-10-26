@@ -1,4 +1,4 @@
-"""Trader unified config must skip provider/key/model prompts in the CLI."""
+"""设置统一 LLM 配置后，CLI 应跳过提供商、密钥及模型选择问题。"""
 
 import pytest
 

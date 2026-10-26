@@ -1,4 +1,4 @@
-"""Config isolation: get/set must not leak nested-dict references."""
+"""配置隔离：get/set 操作不能泄漏嵌套字典的引用。"""
 
 import copy
 import unittest
@@ -61,7 +61,7 @@ class DataflowsConfigIsolationTests(unittest.TestCase):
         self.assertEqual(fresh["tool_vendors"]["get_news"], "alpha_vantage")
 
 
-# --- the config of the run in progress (#1369) --------------------------------
+# --- 运行期配置隔离（#1369） --------------------------------
 
 def _graph(config):
     from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -88,8 +88,8 @@ def _vendors_seen_by_a_run(graph, ticker="AAPL"):
 
 @pytest.mark.unit
 def test_a_run_reads_its_own_graphs_vendors_not_the_last_graph_built():
-    """Building a graph sets the process-wide config, and set_config merges, so
-    a second graph built with the defaults was served the first one's vendors."""
+    """如果构造 Graph 时修改全局配置并执行合并，
+    随后创建的默认 Graph 可能错误继承前一个 Graph 的提供商。"""
     first = copy.deepcopy(default_config.DEFAULT_CONFIG)
     first["tool_vendors"] = {"get_balance_sheet": "sec_edgar,yfinance"}
     set_config(first)                                   # graph A is built
@@ -100,8 +100,8 @@ def test_a_run_reads_its_own_graphs_vendors_not_the_last_graph_built():
 
 @pytest.mark.unit
 def test_a_graph_built_earlier_still_runs_with_its_own_config():
-    """Scoping at construction would hand graph A graph B's config if B was built
-    after A; the config must be bound when the run starts."""
+    """不能只在构造时绑定运行配置；B 在 A 后创建时，
+    A 可能错误读取 B 的配置。需要在运行开始时绑定上下文。"""
     a_config = copy.deepcopy(default_config.DEFAULT_CONFIG)
     a_config["tool_vendors"] = {"get_balance_sheet": "sec_edgar,yfinance"}
     a = _graph(a_config)
@@ -160,7 +160,7 @@ def test_settling_reads_the_graphs_own_config(monkeypatch):
 
 @pytest.mark.unit
 def test_tools_inside_a_langgraph_run_see_the_run_config():
-    """The fix rests on LangGraph carrying the caller's context into tool calls."""
+    """依赖 LangGraph 将调用方的运行上下文传递到工具调用。"""
     from langchain_core.messages import AIMessage
     from langchain_core.tools import tool
     from langgraph.graph import END, START, MessagesState, StateGraph
@@ -171,7 +171,7 @@ def test_tools_inside_a_langgraph_run_see_the_run_config():
 
     @tool
     def probe() -> str:
-        """Report the vendor the run would use."""
+        """报告当前运行应使用的数据提供商。"""
         return get_vendor("fundamental_data", "get_balance_sheet")
 
     def call(state):
@@ -194,7 +194,7 @@ def test_tools_inside_a_langgraph_run_see_the_run_config():
 
 @pytest.mark.unit
 def test_a_run_config_missing_a_newer_key_still_reads_the_default():
-    """A config saved before a key existed must not fail inside a run."""
+    """保存配置时尚不存在的字段，不应使后续运行失败。"""
     from tradingagents.dataflows.config import get_config, run_config
 
     config = copy.deepcopy(default_config.DEFAULT_CONFIG)

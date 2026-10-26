@@ -10,29 +10,26 @@ def create_llm_client(
     base_url: str | None = None,
     **kwargs,
 ) -> BaseLLMClient:
-    """Create an LLM client for the specified provider.
+    """为指定提供商创建 LLM 客户端。
 
-    Provider modules are imported lazily so that simply importing this
-    factory (e.g. during test collection) does not pull in heavy LLM SDKs
-    or fail when their API keys are absent.
+    按需导入提供商模块，避免仅导入工厂（例如测试收集阶段）
+    就加载大型 LLM SDK，或者因为缺少 API Key 而报错。
 
-    Args:
-        provider: LLM provider name
-        model: Model name/identifier
-        base_url: Optional base URL for API endpoint
-        **kwargs: Additional provider-specific arguments
+    参数：
+        provider：LLM 提供商名称。
+        model：模型名称或标识符。
+        base_url：可选的 API 端点基础地址。
+        **kwargs：提供商专属的其他参数。
 
-    Returns:
-        Configured BaseLLMClient instance
+    返回：
+        已配置的 BaseLLMClient 实例。
 
-    Raises:
-        ValueError: If provider is not supported
-    """
+    异常：
+        ValueError：提供商不受支持。"""
     provider_lower = provider.lower()
 
-    # Native (non-OpenAI) APIs are matched first so their string check doesn't
-    # import the OpenAI client. Everything else is OpenAI-compatible and routes
-    # through the provider registry (single source of truth).
+    # 先匹配原生（非 OpenAI）API，避免判断时不必要地导入 OpenAI 客户端；
+    # 其余均视为 OpenAI 兼容接口，通过统一提供商注册表路由。
     if provider_lower == "anthropic":
         from .anthropic_client import AnthropicClient
         return AnthropicClient(model, base_url, **kwargs)
@@ -57,12 +54,10 @@ def create_llm_client(
 
 
 def _coerce_max_retries(value):
-    """Validate an ``llm_max_retries`` value to a non-negative int.
+    """校验 ``llm_max_retries``，确保其为非负整数。
 
-    Accepts an int or a numeric string (env vars arrive as strings). Rejects
-    booleans and negatives loudly so a misconfiguration fails at startup rather
-    than silently disabling retries.
-    """
+    允许整数和数字字符串（环境变量以字符串形式传入）；拒绝布尔值与负数，
+    让错误配置在启动时明确失败，而不是静默禁用重试。"""
     if isinstance(value, bool):
         raise ValueError(f"llm_max_retries must be an integer, not a boolean: {value!r}")
     try:
@@ -75,7 +70,7 @@ def _coerce_max_retries(value):
 
 
 def _coerce_max_tokens(value):
-    """Validate a ``max_tokens`` value to a positive int (env vars are strings)."""
+    """校验 ``max_tokens`` 是否为正整数（环境变量的值为字符串）。"""
     if isinstance(value, bool):
         raise ValueError(f"max_tokens must be an integer, not a boolean: {value!r}")
     try:
@@ -87,12 +82,12 @@ def _coerce_max_tokens(value):
     return n
 
 
-# Providers that take OpenAI's ``openai_reasoning_effort``.
+# 支持 OpenAI ``openai_reasoning_effort`` 参数的提供商。
 REASONING_EFFORT_PROVIDERS = ("openai", "chatgpt")
 
 
 def build_llm_kwargs(config: dict) -> dict[str, Any]:
-    """Keyword arguments for ``create_llm_client`` from a TradingAgents config."""
+    """从 TradingAgents 配置中构造传给 ``create_llm_client`` 的关键字参数。"""
     kwargs = {}
     provider = config.get("llm_provider", "").lower()
 
@@ -111,21 +106,21 @@ def build_llm_kwargs(config: dict) -> dict[str, Any]:
         if effort:
             kwargs["effort"] = effort
 
-    # Sampling temperature is cross-provider: forward it whenever set.
-    # float() here so a value coming from a TRADINGAGENTS_TEMPERATURE env
-    # string ("0.2") works the same as a programmatic float.
+    # temperature 是跨提供商参数，设置后统一透传。
+    # 这里调用 float()，确保环境变量 TRADINGAGENTS_TEMPERATURE
+    # 中的字符串（如 "0.2"）与代码传入的浮点值表现一致。
     temperature = config.get("temperature")
     if temperature is not None and temperature != "":
         kwargs["temperature"] = float(temperature)
 
-    # SDK retry budget is cross-provider. Forward it only when explicitly set
-    # so each provider keeps its own default (usually 2) otherwise (#1091).
+    # SDK 重试次数为跨提供商设置；仅在显式设置时透传，
+    # 否则保留各提供商自己的默认值（通常为 2，#1091）。
     max_retries = config.get("llm_max_retries")
     if max_retries is not None and max_retries != "":
         kwargs["max_retries"] = _coerce_max_retries(max_retries)
 
-    # Output-token cap is cross-provider, but Gemini names it
-    # ``max_output_tokens``; forward under the right key when set (#1204).
+    # 输出 token 上限同样跨提供商，但 Gemini 使用
+    # ``max_output_tokens`` 参数名；需要按提供商转换后传入（#1204）。
     max_tokens = config.get("max_tokens")
     if max_tokens is not None and max_tokens != "":
         key = "max_output_tokens" if provider == "google" else "max_tokens"
@@ -135,17 +130,16 @@ def build_llm_kwargs(config: dict) -> dict[str, Any]:
 
 
 def tier_provider(config: dict, tier: str) -> str:
-    """The provider of the ``quick`` or ``deep`` model tier: its own, else ``llm_provider``."""
+    """确定 ``quick`` 或 ``deep`` 模型层级使用的提供商：优先使用该层级指定的值，否则使用 ``llm_provider``。"""
     return (config.get(f"{tier}_think_provider") or config["llm_provider"]).lower()
 
 
 def create_tier_client(config: dict, tier: str, **extra) -> BaseLLMClient:
-    """The client for the ``quick`` or ``deep`` model tier (#1440).
+    """创建 ``quick`` 或 ``deep`` 模型层级对应的客户端（#1440）。
 
-    A tier on its own provider gets that provider's settings (thinking level,
-    reasoning effort, the name of the output-token cap) and its own endpoint,
-    else the provider's default: ``backend_url`` belongs to ``llm_provider``.
-    """
+    若层级使用独立提供商，则使用该提供商的推理参数、输出 token 上限
+    参数名和专属端点；未配置独立端点时使用该提供商的默认值。
+    ``backend_url`` 只属于全局的 ``llm_provider``。"""
     provider = tier_provider(config, tier)
     if provider == config["llm_provider"].lower():
         base_url = config.get(f"{tier}_think_backend_url") or config.get("backend_url")
@@ -153,7 +147,7 @@ def create_tier_client(config: dict, tier: str, **extra) -> BaseLLMClient:
         base_url = config.get(f"{tier}_think_backend_url")
     kwargs = build_llm_kwargs({**config, "llm_provider": provider})
     if config.get("unified_llm"):
-        # Credential stays outside run settings, reports and checkpoint fingerprints.
+        # 凭据不能进入运行配置、报告或检查点指纹。
         import os
         kwargs["api_key"] = os.environ.get("LLM_API_KEY") or "EMPTY"
     return create_llm_client(provider=provider, model=config[f"{tier}_think_llm"], base_url=base_url,

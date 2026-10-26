@@ -1,13 +1,9 @@
-"""Agents on the schema-only structured-output path must not invite tool calls (#1130).
+"""仅通过 Schema 输出的 Agent 不应在 Prompt 中诱导调用其他工具（#1130）。
 
-`with_structured_output` binds exactly one tool (the schema). A prompt that
-primes tool use makes models emit an unknown `web_search` call, which discards
-the structured attempt and forces a free-text retry — an extra LLM round trip
-and the loss of typed output.
-
-These assert the constraint reaches the *rendered* prompt each agent actually
-sends, not merely that the constant is referenced in the module.
-"""
+with_structured_output 只绑定 Schema 这一种工具；
+模型若尝试调用 web_search，会让结构化结果丢失并触发文本重试，
+增加调用轮数且失去结构化结果。
+测试检查的是每个 Agent 实际渲染后的 Prompt，而不只是常量引用。"""
 from __future__ import annotations
 
 import inspect
@@ -23,7 +19,7 @@ from tradingagents.agents.trader.trader import create_trader
 
 
 def _capturing_llm(captured: dict, result):
-    """LLM whose structured binding records the prompt it was handed."""
+    """记录结构化绑定实际收到的 Prompt 的模拟 LLM。"""
     structured = MagicMock()
     structured.invoke.side_effect = lambda prompt: (
         captured.__setitem__("prompt", prompt) or result
@@ -34,7 +30,7 @@ def _capturing_llm(captured: dict, result):
 
 
 def _prompt_text(prompt) -> str:
-    """Flatten a captured prompt (str, message list, or objects) to text."""
+    """将捕获的 Prompt（字符串、消息列表或对象）展开为文本。"""
     if isinstance(prompt, str):
         return prompt
     parts = []
@@ -110,7 +106,7 @@ def test_portfolio_manager_prompt_states_constraint():
 def test_sentiment_prompt_states_constraint(monkeypatch):
     from tradingagents.agents.schemas import SentimentBand, SentimentReport
 
-    # Pre-fetched sources are stubbed so the prompt builds without network I/O.
+    # 预先获取的数据源使用模拟结果，确保构造 Prompt 时不访问网络。
     monkeypatch.setattr(sentiment, "fetch_stocktwits_messages", lambda *a, **k: "st")
     monkeypatch.setattr(sentiment, "fetch_reddit_posts", lambda *a, **k: "rd")
     monkeypatch.setattr(sentiment.get_news, "func", lambda *a, **k: "news", raising=False)
@@ -126,14 +122,14 @@ def test_sentiment_prompt_states_constraint(monkeypatch):
     })
     text = _prompt_text(captured["prompt"])
     assert NO_EXTERNAL_TOOLS in text
-    # This agent binds no tools, so tool-range wording must not reappear.
+    # 该 Agent 不绑定外部工具，因此不能重新出现工具日期范围指令。
     assert "tool-call date ranges" not in text
 
 
 @pytest.mark.unit
 def test_tool_using_analysts_keep_their_date_guidance():
-    # The analysts that really do call tools keep the wording that anchors their
-    # tool date ranges (#836) — this fix is scoped to no-tool agents.
+    # 真正调用工具的分析师仍保留约束工具时间窗口的提示词（#836），
+    # 本次修复仅适用于不调用工具的 Agent。
     import tradingagents.agents.analysts.market_analyst as market
     import tradingagents.agents.analysts.news_analyst as news
     for module in (market, news):
@@ -143,8 +139,7 @@ def test_tool_using_analysts_keep_their_date_guidance():
 @pytest.mark.unit
 def test_constraint_text_is_unambiguous():
     assert "do not call external tools" in NO_EXTERNAL_TOOLS.lower()
-    # No template braces: it is embedded in ChatPromptTemplate strings, where
-    # braces would be parsed as input variables.
+    # 不能在此处引入模板大括号，因为 ChatPromptTemplate 会将其解析为输入变量。
     assert "{" not in NO_EXTERNAL_TOOLS and "}" not in NO_EXTERNAL_TOOLS
 
 

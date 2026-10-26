@@ -1,5 +1,6 @@
-"""Unattended CLI runs: flags answer the per-run questions, and a run with no
-terminal stops up front, naming what to set, instead of waiting on a prompt."""
+"""无交互终端运行的 CLI 测试：命令行标志替代交互输入，
+缺少必要参数时应在开始前一次性报出需要配置的项目，
+而不是停在等待用户输入的提示上。"""
 
 import datetime
 
@@ -164,7 +165,7 @@ def test_a_closed_stdin_counts_as_no_terminal(monkeypatch, capsys):
 
 @pytest.mark.unit
 def test_rounds_from_the_environment_do_not_claim_a_depth_was_chosen(monkeypatch, capsys):
-    """With both round counts set, the depth question never appeared."""
+    """两类讨论轮数都已配置时，研究深度问题不应出现。"""
     monkeypatch.setenv("TRADINGAGENTS_MAX_DEBATE_ROUNDS", "1")
     monkeypatch.setenv("TRADINGAGENTS_MAX_RISK_ROUNDS", "1")
     selections = {"research_depth": 3, "quick_think_llm": "q", "deep_think_llm": "d", "backend_url": None,
@@ -194,7 +195,7 @@ def _selections_with_env(monkeypatch, keys=None):
 
 @pytest.mark.unit
 def test_a_tier_on_another_provider_needs_its_own_model(monkeypatch, capsys):
-    """Otherwise the CLI would take the main provider's model for it (#1440)."""
+    """否则 CLI 会错误地使用主提供商的模型（#1440）。"""
     _selections_with_env(monkeypatch)
     monkeypatch.setitem(selections.DEFAULT_CONFIG, "deep_think_provider", "anthropic")
     monkeypatch.delenv("TRADINGAGENTS_DEEP_THINK_LLM", raising=False)
@@ -337,7 +338,7 @@ def test_the_html_flag_reaches_the_run(monkeypatch, args, expected):
 
 @pytest.mark.unit
 def test_only_the_providers_the_tiers_use_need_a_key(monkeypatch):
-    """Both tiers on a local Ollama: the main provider's key is not needed."""
+    """quick/deep 两个层级均使用本地 Ollama 时，不需要主提供商的密钥。"""
     checked = _selections_with_env(monkeypatch)
     for tier in ("quick", "deep"):
         monkeypatch.setitem(selections.DEFAULT_CONFIG, f"{tier}_think_provider", "ollama")

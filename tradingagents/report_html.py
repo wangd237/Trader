@@ -1,10 +1,9 @@
-"""The report as one self-contained HTML page (#1419).
+"""将报告导出为独立、完整的 HTML 页面（#1419）。
 
-The page reads well in a browser, on a phone and in print. It loads nothing and
-runs nothing: styles are inline, there is no script, and a Content-Security-Policy
-forbids any fetch. Report text is rendered as CommonMark with raw HTML and images
-off, so nothing a model wrote can inject markup or load a remote asset.
-"""
+页面支持桌面、手机及打印阅读，不需要加载外部资源或执行脚本：
+样式内嵌，且 Content-Security-Policy 禁止外部请求。
+Markdown 采用 CommonMark 渲染，关闭原始 HTML 和图片支持，
+以避免模型生成的文本注入网页标签或加载远程资产。"""
 
 from datetime import datetime
 from html import escape
@@ -15,10 +14,10 @@ from markdown_it import MarkdownIt
 from tradingagents.agents.rating import run_rating
 from tradingagents.reporting import analyst_names
 
-# Ratings by direction, so the page can show which way the call leans.
+# 按方向组织评级，便于页面显示看多或看空倾向。
 _TONE = {"Buy": "up", "Overweight": "up", "Hold": "level", "Underweight": "down", "Sell": "down"}
 
-# Trader uses a small local, inert SVG placeholder instead of upstream branding.
+# Trader 使用本地静态 SVG 占位图，而不是上游品牌图。
 _LOGO = files("tradingagents").joinpath("assets/trader-logo.svg").read_text(encoding="utf-8").strip()
 _COMPANY = "https://github.com/wangd237/Trader"
 _ORG = "https://github.com/wangd237"
@@ -192,7 +191,7 @@ def _markdown() -> MarkdownIt:
 
 
 def _render_agent_text(md: MarkdownIt, text: str) -> str:
-    """An agent's text, its own headings placed below the agent's heading (h3)."""
+    """渲染 Agent 正文，并使内部标题低于该 Agent 的 h3 标题层级。"""
     tokens = md.parse(text)
     for token in tokens:
         if token.type in ("heading_open", "heading_close"):
@@ -200,7 +199,7 @@ def _render_agent_text(md: MarkdownIt, text: str) -> str:
     return md.renderer.render(tokens, md.options, {})
 
 
-# What each data category serves, as a reader would name it.
+# 用读者易理解的名称描述每类数据的用途。
 _CATEGORY = {
     "core_stock_apis": "Prices", "technical_indicators": "Indicators", "fundamental_data": "Fundamentals",
     "news_data": "News", "macro_data": "Macro", "prediction_markets": "Prediction markets",
@@ -212,7 +211,7 @@ def _fields(values) -> str:
 
 
 def _chain(vendors: str) -> str:
-    """A vendor chain in the order it is tried: ``a,b`` reads a, then b."""
+    """按实际尝试顺序展示数据提供商回退链：``a,b`` 表示先 a 后 b。"""
     names = [v.strip() for v in str(vendors).split(",") if v.strip()]
     return ' <span class="then">\u2192</span> '.join(_fields([n]) for n in names)
 
@@ -222,7 +221,7 @@ def _group(name: str, values_html: str) -> str:
 
 
 def _run_details(final_state: dict, settings: dict | None) -> list[tuple[str, str]]:
-    """The run details as (label, value HTML); every value from the run is escaped."""
+    """将运行信息转换为 (标签、HTML 值)；运行数据全部进行 HTML 转义。"""
     details = [("Generated", escape(datetime.now().strftime("%Y-%m-%d %H:%M")))]
     if settings:
         s = settings.get
@@ -246,7 +245,7 @@ def _run_details(final_state: dict, settings: dict | None) -> list[tuple[str, st
 
 
 def render_report(ticker: str, final_state: dict, settings: dict | None, parts) -> str:
-    """The report page: title and rating, what produced the run, contents, sections."""
+    """生成完整报告页面：标题、评级、运行来源、目录及各报告章节。"""
     md = _markdown()
     rating = run_rating(final_state) if final_state.get("final_trade_decision") else ""
     tone = _TONE.get(rating, "review")

@@ -1,15 +1,8 @@
-"""Tests for DeepSeekChatOpenAI thinking-mode behaviour.
+"""测试 DeepSeekChatOpenAI 思考模式行为。
 
-Two pieces verified:
-
-1. ``reasoning_content`` is captured on receive into the AIMessage's
-   ``additional_kwargs`` and re-attached on send so DeepSeek's API
-   sees the same value across turns.
-2. ``with_structured_output`` consults the capability table and
-   suppresses ``tool_choice`` for models that reject it (V4 + reasoner),
-   matching DeepSeek's official tool-calling pattern at
-   https://api-docs.deepseek.com/guides/tool_calls.
-"""
+验证两点：收到模型的 reasoning_content 时放入 AIMessage.additional_kwargs，
+下一轮请求必须原样回传；以及结构化输出通过能力表
+为 V4、reasoner 禁用 tool_choice，遵循 DeepSeek 官方工具调用模式。"""
 
 import os
 
@@ -25,8 +18,8 @@ from tradingagents.llm_clients.openai_client import (
 )
 
 # ---------------------------------------------------------------------------
-# _input_to_messages — the helper that handles list / ChatPromptValue / other
-# (Gemini bot review note: non-list inputs must also work)
+# _input_to_messages：兼容列表、ChatPromptValue 等输入
+# （代码审查提醒：非列表输入也必须兼容）
 # ---------------------------------------------------------------------------
 
 
@@ -42,13 +35,13 @@ class TestInputToMessages:
         assert _input_to_messages(prompt_value) == msgs
 
     def test_string_input_yields_empty_list(self):
-        # A bare string isn't a message-bearing input; the caller's normal
-        # langchain conversion happens upstream of _get_request_payload.
+        # 普通字符串本身不包含消息对象；
+        # LangChain 转换会在 _get_request_payload 之前完成。
         assert _input_to_messages("hello") == []
 
 
 # ---------------------------------------------------------------------------
-# Reasoning content propagation across turns
+# 跨轮次传递推理内容
 # ---------------------------------------------------------------------------
 
 
@@ -63,8 +56,8 @@ class TestDeepSeekReasoningContent:
         )
 
     def test_capture_on_receive(self):
-        """When the response carries reasoning_content, it lands on the
-        AIMessage's additional_kwargs so the next turn can echo it back."""
+        """响应中包含 reasoning_content 时，必须保存到 AIMessage.additional_kwargs，
+        让下轮请求能够回传。"""
         client = self._client()
         result = client._create_chat_result(
             {
@@ -87,8 +80,7 @@ class TestDeepSeekReasoningContent:
         assert ai.additional_kwargs["reasoning_content"] == "Step 1: trend is up. Step 2: ..."
 
     def test_propagate_on_send(self):
-        """When an outgoing AIMessage carries reasoning_content, the request
-        payload echoes it on the corresponding message dict."""
+        """向模型发送 AIMessage 时，必须将 reasoning_content 注入对应请求消息。"""
         client = self._client()
         prior = AIMessage(
             content="Plan",
@@ -96,14 +88,13 @@ class TestDeepSeekReasoningContent:
         )
         new_user = HumanMessage(content="Refine.")
         payload = client._get_request_payload([prior, new_user])
-        # Find the assistant message in the payload
+        # 在请求负载中找到 assistant 消息。
         assistant_dicts = [m for m in payload["messages"] if m.get("role") == "assistant"]
         assert assistant_dicts, "assistant message missing from outgoing payload"
         assert assistant_dicts[0]["reasoning_content"] == "weighed bull case"
 
     def test_propagate_through_chat_prompt_value(self):
-        """Gemini bot review note: non-list inputs (ChatPromptValue) must
-        also propagate reasoning_content."""
+        """除列表外，还要支持 ChatPromptValue 输入携带 reasoning_content。"""
         client = self._client()
         prior = AIMessage(
             content="Plan",
@@ -116,22 +107,21 @@ class TestDeepSeekReasoningContent:
 
 
 # ---------------------------------------------------------------------------
-# Capability-driven structured output: tool_choice suppressed for V4 + reasoner
+# 能力表驱动的结构化输出：V4 与 reasoner 禁用 tool_choice
 # ---------------------------------------------------------------------------
 
 
 def _bound_kwargs(runnable):
-    """Extract bind() kwargs from a with_structured_output result."""
+    """从 with_structured_output 的结果中提取 bind() 参数。"""
     first = runnable.steps[0] if hasattr(runnable, "steps") else runnable
     return getattr(first, "kwargs", {})
 
 
 @pytest.mark.unit
 class TestStructuredOutputCapabilityDispatch:
-    """DeepSeek V4 and reasoner reject the tool_choice parameter
-    (official guide: api-docs.deepseek.com/guides/tool_calls passes
-    tools=[...] without tool_choice). Verify the capability dispatch
-    suppresses tool_choice for those models and sends it for chat."""
+    """DeepSeek V4 和 reasoner 会拒绝 tool_choice；
+    官方工具调用示例只发送 tools=[...]。
+    验证能力分发会禁用该参数，但普通 chat 模型仍正常发送。"""
 
     class _Sample(BaseModel):
         answer: str
@@ -147,8 +137,8 @@ class TestStructuredOutputCapabilityDispatch:
 
     def test_reasoner_suppresses_tool_choice(self):
         bound = self._client("deepseek-reasoner").with_structured_output(self._Sample)
-        # tool_choice is either absent or explicitly None — both are valid
-        # signals that langchain's bind_tools will skip the parameter.
+        # tool_choice 缺失或显式为 None 都意味着不强制工具，
+        # LangChain 的 bind_tools 应跳过该参数。
         assert _bound_kwargs(bound).get("tool_choice") in (None, ...) or \
             "tool_choice" not in _bound_kwargs(bound)
 
@@ -163,14 +153,14 @@ class TestStructuredOutputCapabilityDispatch:
             "tool_choice" not in _bound_kwargs(bound)
 
     def test_future_v_variant_via_regex(self):
-        """Forward-compat: unknown deepseek-v\\d-* IDs inherit V4 quirks."""
+        """向前兼容：未知 deepseek-v\\d-* 模型继承 V4 兼容规则。"""
         bound = self._client("deepseek-v5-hypothetical").with_structured_output(self._Sample)
         assert _bound_kwargs(bound).get("tool_choice") is None or \
             "tool_choice" not in _bound_kwargs(bound)
 
     def test_schema_is_still_bound_as_tool(self):
-        """tool_choice is suppressed, but the schema is still bound as a tool —
-        exactly matching DeepSeek's official tool-calling examples."""
+        """虽然禁用 tool_choice，仍须将 Schema 作为工具绑定，
+        与 DeepSeek 官方工具调用示例一致。"""
         bound = self._client("deepseek-reasoner").with_structured_output(self._Sample)
         kwargs = _bound_kwargs(bound)
         tools = kwargs.get("tools", [])
@@ -180,7 +170,7 @@ class TestStructuredOutputCapabilityDispatch:
 
 
 # ---------------------------------------------------------------------------
-# Live API: structured output round-trips against the real DeepSeek backend
+# 实时 API：验证 DeepSeek 后端的结构化输出往返
 # ---------------------------------------------------------------------------
 
 
@@ -195,12 +185,9 @@ def _has_real_deepseek_key():
     reason="DEEPSEEK_API_KEY not set (or placeholder); skipping live API call",
 )
 class TestDeepSeekLiveStructuredOutput:
-    """End-to-end: a real DeepSeek V4-flash call returns a typed instance.
-
-    Verifies the no-tool_choice path doesn't trigger the 400 reported in
-    issue #678 and that the structured-output binding still parses to a
-    Pydantic instance.
-    """
+    """端到端测试：真实 DeepSeek V4 Flash 调用应返回结构化实例。
+    验证不传 tool_choice 能避免 #678 的 400 错误，
+    并保持 Pydantic 结果解析能力。"""
 
     class _Pick(BaseModel):
         action: str
@@ -224,15 +211,15 @@ class TestDeepSeekLiveStructuredOutput:
 
 
 # ---------------------------------------------------------------------------
-# Base class isolation: NormalizedChatOpenAI does NOT have DeepSeek behaviour
+# 基类隔离：NormalizedChatOpenAI 不含 DeepSeek 特殊行为
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.unit
 class TestBaseClassIsolation:
     def test_normalized_does_not_propagate_reasoning_content(self):
-        """The general-purpose NormalizedChatOpenAI must not carry
-        DeepSeek-specific behaviour. Only the subclass does."""
+        """通用 NormalizedChatOpenAI 不应包含 DeepSeek 专属行为；
+        只有其子类负责这些兼容处理。"""
         assert not hasattr(NormalizedChatOpenAI, "_get_request_payload") or (
             NormalizedChatOpenAI._get_request_payload
             is NormalizedChatOpenAI.__bases__[0]._get_request_payload

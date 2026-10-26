@@ -1,16 +1,10 @@
-"""The latest trading day's bar must not silently vanish (#1201).
+"""最近交易日的 K 线不能悄然消失（#1201）。
 
-yfinance can return the newest in-range bar with a NaN close (an unsettled or
-glitched session). The old path parsed dates without normalizing timezone and
-dropped every NaN-close row before applying the curr_date cutoff, so the latest
-bar disappeared and the previous trading day looked like the latest. Now dates
-are normalized before the cutoff, so the frame ends at the last settled bar
-instead of carrying a fabricated close.
-
-Refusing the whole frame instead (the first attempt at #1201) reported a
-tradable symbol as invalid or delisted (#1289), so only a range with no close
-anywhere counts as no data and the staleness check judges the rest.
-"""
+yfinance 可能返回 Close 为 NaN 的最新 K 线，表示交易尚未结算或数据异常。
+旧路径先丢弃缺收盘价行，导致前一交易日被误认为最新。
+现在先规范化日期再过滤，保留最近已结算 K 线，不能虚构收盘价。
+但也不应直接拒绝整组行情，否则会把有效标的误报无效（#1289）；
+只有整个窗口都缺收盘价时才视为无数据，剩余数据仍需检查过期。"""
 from __future__ import annotations
 
 import os
@@ -24,8 +18,8 @@ from tradingagents.dataflows.vendors.yahoo import ohlcv
 
 
 def _stamp(path, ts):
-    """Set ``path``'s mtime to the wall-clock ``ts``, read back in local time as
-    the cache does. A naive ``pd.Timestamp.timestamp()`` would be taken as UTC."""
+    """缓存修改时间使用本地时间 ``ts``，读取时也按本地时间解释；
+    无时区 pd.Timestamp.timestamp() 可能被错误视为 UTC。"""
     t = ts.to_pydatetime().timestamp()
     os.utime(path, (t, t))
 
@@ -52,8 +46,8 @@ def test_normalize_dates_leaves_naive_dates_at_midnight():
 
 @pytest.mark.unit
 def test_normalize_dates_handles_mixed_dst_offsets():
-    # 5y of US bars span DST; via a cache CSV they arrive as mixed-offset
-    # strings, which pd.to_datetime can't unify. Each keeps its own local date.
+    # 五年美股 K 线跨越夏令时变化，缓存 CSV 可能含不同 UTC 偏移；
+    # 每条记录需保留自身市场本地日期。
     mixed = pd.Series([
         "2026-01-08 00:00:00-05:00",  # EST
         "2026-06-08 00:00:00-04:00",  # EDT
@@ -67,8 +61,8 @@ def test_normalize_dates_handles_mixed_dst_offsets():
 
 @pytest.mark.unit
 def test_normalize_dates_keeps_positive_offset_local_date():
-    # A Tokyo bar at local midnight (+09:00) must stay on its own calendar day,
-    # not shift to the previous UTC day (which utc=True parsing would cause).
+    # 东京市场 +09:00 的午夜 K 线必须保留当地日期；
+    # 直接转换 UTC 会错误地归入前一天。
     jst = pd.Series(["2026-05-08 00:00:00+09:00"])
     assert ohlcv._normalize_dates(jst).iloc[0] == pd.Timestamp("2026-05-08")
 
@@ -77,7 +71,7 @@ def test_normalize_dates_keeps_positive_offset_local_date():
 
 @pytest.mark.unit
 def test_clean_dataframe_keeps_nan_close_for_the_caller_to_inspect():
-    # _clean_dataframe normalizes but no longer drops the NaN close itself.
+    # _clean_dataframe 只规范化数据，不直接删除 NaN 收盘价。
     df = pd.DataFrame({"Date": ["2026-05-08", "2026-05-09"], "Close": [100.0, float("nan")]})
     cleaned = ohlcv._clean_dataframe(df)
     assert len(cleaned) == 2
@@ -96,7 +90,7 @@ def test_fill_price_gaps_drops_nan_close_rows():
 # --- load_ohlcv end-to-end (with a mocked cache read) -----------------------
 
 def _run_load(monkeypatch, tmp_path, frame, curr_date):
-    """Drive load_ohlcv against a pre-seeded cache frame (no network)."""
+    """预先写入缓存 DataFrame 后运行 load_ohlcv，不使用网络。"""
     monkeypatch.setattr(ohlcv, "get_config", lambda: {"data_cache_dir": str(tmp_path)})
     today = pd.Timestamp(curr_date)
     monkeypatch.setattr(ohlcv.pd.Timestamp, "today", staticmethod(lambda: today))
@@ -112,8 +106,8 @@ def _run_load(monkeypatch, tmp_path, frame, curr_date):
 
 @pytest.mark.unit
 def test_unsettled_latest_bar_is_served_as_the_last_settled_bar(monkeypatch, tmp_path):
-    # Newest bar (the curr_date) has no close: serve the last settled bar rather
-    # than reporting the whole symbol as unavailable (#1289).
+    # curr_date 当天无收盘价时，返回最近已结算 K 线，
+    # 不能把整个标的视为不可用（#1289）。
     frame = pd.DataFrame({
         "Date": ["2026-05-07", "2026-05-08"],
         "Open": [100.0, 101.0], "High": [101.0, 102.0], "Low": [99.0, 100.0],
@@ -139,8 +133,8 @@ def test_no_settled_bar_at_all_is_still_no_data(monkeypatch, tmp_path):
 def test_serving_the_last_settled_bar_does_not_bypass_the_staleness_check(
     monkeypatch, tmp_path
 ):
-    # Falling back must not resurrect a long-dead series: once the closeless
-    # tail is gone, the remaining bar is judged on its age like any other.
+    # 删除缺收盘价的末尾记录后，仍要检查剩余数据是否过期，
+    # 不能使多年未更新的行情重新变成“有效”。
     frame = pd.DataFrame({
         "Date": ["2026-01-05", "2026-05-08"],
         "Open": [100.0, 101.0], "High": [101.0, 102.0], "Low": [99.0, 100.0],
@@ -152,7 +146,7 @@ def test_serving_the_last_settled_bar_does_not_bypass_the_staleness_check(
 
 @pytest.mark.unit
 def test_older_nan_close_row_is_still_dropped(monkeypatch, tmp_path):
-    # A stale gap mid-series is dropped; the valid latest bar is served.
+    # 删除序列中间的过期缺口，保留有效的最新 K 线。
     frame = pd.DataFrame({
         "Date": ["2026-05-06", "2026-05-07", "2026-05-08"],
         "Open": [100.0, 101.0, 102.0], "High": [101.0, 102.0, 103.0],
@@ -166,8 +160,8 @@ def test_older_nan_close_row_is_still_dropped(monkeypatch, tmp_path):
 
 @pytest.mark.unit
 def test_tz_aware_latest_bar_is_kept_at_the_cutoff(monkeypatch, tmp_path):
-    # A tz-aware/intraday latest bar on the cutoff day must not be filtered out
-    # by a naive-vs-aware comparison.
+    # 截止日内带时区或日内时间戳的最新 K 线，
+    # 不能因日期比较方式不一致而被错误排除。
     frame = pd.DataFrame({
         "Date": ["2026-05-07 09:30:00-04:00", "2026-05-08 09:30:00-04:00"],
         "Open": [100.0, 101.0], "High": [101.0, 102.0], "Low": [99.0, 100.0],
@@ -180,9 +174,8 @@ def test_tz_aware_latest_bar_is_kept_at_the_cutoff(monkeypatch, tmp_path):
 
 @pytest.mark.unit
 def test_the_snapshot_does_not_present_a_filled_price_as_reported(monkeypatch, tmp_path):
-    """Gap filling exists so indicators compute on a continuous series. The
-    verification snapshot is the one place a number must be what the vendor
-    reported, or the module built to stop invented prices supplies them."""
+    """缺口填补是为了让指标在连续价格序列上计算；
+    核验快照必须显示数据源真实报价，不能由防止虚构价格的模块反过来制造价格。"""
     from tradingagents.dataflows.vendors.yahoo import ohlcv, snapshot
 
     frame = pd.DataFrame({

@@ -1,4 +1,4 @@
-"""Research Manager: turns the bull/bear debate into a structured investment plan for the trader."""
+"""Research Manager：将多空辩论结论转换为供 Trader 使用的结构化投资计划。"""
 
 from __future__ import annotations
 

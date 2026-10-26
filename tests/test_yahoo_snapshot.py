@@ -1,4 +1,4 @@
-"""Tests for the deterministic market-data verification snapshot (#830/#881)."""
+"""确定性行情数据核验快照的回归测试（#830/#881）。"""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class TestVerifiedSnapshot:
 
     def test_uses_previous_trading_day_when_date_is_weekend(self, monkeypatch):
         monkeypatch.setattr(validator, "load_ohlcv", lambda s, d, fill_gaps=True: _sample_ohlcv())
-        # 2026-05-16 is a Saturday; latest row should be Fri 2026-05-15
+        # 2026-05-16 是周六，最近有效记录应为周五 2026-05-15。
         snap = validator.build_verified_market_snapshot("COF", "2026-05-16")
         assert "Latest trading row used: 2026-05-15" in snap
         assert "Recent verified closes" in snap
@@ -59,7 +59,7 @@ class TestVerifiedSnapshot:
     def test_look_back_window_capped_at_30(self, monkeypatch):
         monkeypatch.setattr(validator, "load_ohlcv", lambda s, d, fill_gaps=True: _sample_ohlcv())
         snap = validator.build_verified_market_snapshot("COF", "2026-05-20", look_back_days=999)
-        # last-N closes table has at most 30 data rows
+        # 最近 N 个收盘价表格最多包含 30 行数据。
         close_rows = [ln for ln in snap.splitlines() if ln.startswith("| 2026-")]
         assert 0 < len(close_rows) <= 30
 

@@ -25,8 +25,8 @@ ANALYST_NODE_SPECS: dict[str, AnalystNodeSpec] = {
         tools=market_analyst.TOOLS,
     ),
     "social": AnalystNodeSpec(
-        # Saved configs select this analyst as "social". It fetches its
-        # sources before calling the model, so it has no tools.
+        # 保存的配置用 "social" 表示该分析师。
+        # 该分析师在调用模型前主动获取数据源，因此没有工具调用节点。
         key="social",
         agent_node="Sentiment Analyst",
         report_key="sentiment_report",

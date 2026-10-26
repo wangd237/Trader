@@ -1,9 +1,8 @@
-"""Gemini thinking_level forwarding (Gemini 3.x).
+"""验证 Gemini 3.x 的 thinking_level 参数传递。
 
-The catalog is Gemini 3.x only, which takes the string ``thinking_level``
-directly. Pro, Gemini 3.8+ and the -latest aliases reject "minimal" with a 400,
-so it is mapped to "low" there; numbered Flash models before 3.8 accept it.
-"""
+Gemini 3.x 使用字符串参数；Pro、3.8+ 和 -latest 别名
+不接受 "minimal"，应映射为 "low"；
+3.8 之前的明确版本 Flash 模型仍可使用 "minimal"。"""
 
 from unittest import mock
 
@@ -47,7 +46,7 @@ def test_flash_38_keeps_supported_levels():
 
 @pytest.mark.parametrize("alias", ["gemini-flash-latest", "gemini-pro-latest"])
 def test_latest_alias_remaps_minimal_to_low(alias):
-    # Aliases move between generations; gemini-flash-latest 400s on "minimal".
+    # 模型别名会随版本变化；gemini-flash-latest 对 "minimal" 返回 400。
     assert _captured_kwargs(alias, thinking_level="minimal")["thinking_level"] == "low"
 
 
@@ -64,7 +63,7 @@ def test_no_thinking_level_is_omitted():
 
 @pytest.mark.unit
 def test_a_gemini_call_times_out_like_the_other_providers():
-    """The OpenAI and Anthropic SDKs give up after 600s; Gemini's waits forever
-    unless told otherwise, so a stalled call would hang the run (#1417)."""
+    """OpenAI 与 Anthropic SDK 默认 600 秒超时，
+    Gemini 若未指定超时可能一直等待，导致调用挂起（#1417）。"""
     assert _captured_kwargs("gemini-3.5-flash")["timeout"] == 600
     assert _captured_kwargs("gemini-3.5-flash", timeout=30)["timeout"] == 30

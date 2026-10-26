@@ -1,9 +1,7 @@
-"""StockTwits fetch: transport-error resilience (#1024) and crypto symbol
-mapping (#1113).
+"""测试 StockTwits 的传输异常降级（#1024）及加密资产代码映射（#1113）。
 
-StockTwits lists crypto under ``<BASE>.X`` (Yahoo's ``BTC-USD`` 404s), and any
-transport error must degrade to a placeholder rather than raise.
-"""
+StockTwits 使用 ``<BASE>.X`` 表示加密资产，而 Yahoo 的 ``BTC-USD`` 会返回 404。
+任何传输故障都应退化为不可用标记，不能向上抛出终止分析。"""
 
 from __future__ import annotations
 

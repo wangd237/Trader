@@ -1,12 +1,8 @@
-"""Deterministic market-data verification snapshot.
+"""确定性的行情数据核验快照。
 
-The market analyst is an LLM that can confabulate exact numbers — citing a
-Bollinger band or a "historically validated bounce" that the underlying data
-doesn't support (#830). This module computes a ground-truth snapshot (latest
-OHLCV row on or before the analysis date, common indicators, recent closes)
-the analyst is told to treat as the source of truth for any exact numeric
-claim. Deterministic, no LLM involved.
-"""
+市场分析师是 LLM，可能编造精确指标数字，例如没有数据支持的布林带
+或“历史验证的反弹”（#830）。本模块不调用 LLM，而是计算分析日期之前
+最新 OHLCV、常见技术指标及近期收盘价，作为精确数字主张的事实依据。"""
 
 from __future__ import annotations
 
@@ -19,7 +15,7 @@ from tradingagents.dataflows.errors import NoMarketDataError
 from tradingagents.dataflows.symbols import normalize_symbol
 from tradingagents.dataflows.vendors.yahoo.ohlcv import load_ohlcv
 
-# A fixed, common indicator set so the snapshot is the same shape every run.
+# 使用固定的通用指标集合，使每次运行快照结构一致。
 DEFAULT_SNAPSHOT_INDICATORS: tuple[str, ...] = (
     "close_10_ema", "close_50_sma", "close_200_sma",
     "rsi", "boll", "boll_ub", "boll_lb",
@@ -28,14 +24,12 @@ DEFAULT_SNAPSHOT_INDICATORS: tuple[str, ...] = (
 
 
 def _verified_rows(symbol: str, as_of_date: str) -> pd.DataFrame:
-    """OHLCV on or before as_of_date, date-sorted. Raises NoMarketDataError if nothing usable.
+    """取得不晚于 as_of_date 的 OHLCV 并按日期排序；无可用数据时抛出 NoMarketDataError。
 
-    ``load_ohlcv`` already normalizes the Date column and filters out
-    look-ahead rows, but we re-apply the cutoff defensively — this is a
-    verification path, so it must not trust its input to be pre-filtered.
-    """
-    # As reported: this snapshot is quoted by the agents as exact prices, so a
-    # gap-filled cell would put the previous session's number under this date.
+    虽然 ``load_ohlcv`` 已规范化日期并过滤未来数据，这里仍再次应用
+    日期上限。作为数据核验路径，不能完全信任输入已预先过滤。"""
+    # 直接使用原始报价：Agent 会将快照数字作为精确价格引用，
+    # 填补缺失值后的数据可能错误地把上一交易日价格放在当前日期。
     data = load_ohlcv(symbol, as_of_date, fill_gaps=False)
     if data is None or data.empty:
         raise NoMarketDataError(symbol, normalize_symbol(symbol), "no price rows")
@@ -69,10 +63,10 @@ def build_verified_market_snapshot(
     look_back_days: int = 30,
     indicators: Iterable[str] | None = None,
 ) -> str:
-    """Render a ground-truth snapshot: latest OHLCV row, indicators, recent closes."""
-    # `df` keeps the original capitalized OHLCV columns (Open/High/Low/Close/
-    # Volume); stockstats `wrap()` lowercases columns and adds indicator
-    # columns, so read raw prices from `df` and indicators from `stock_df`.
+    """渲染真实行情快照，包括最新 OHLCV、技术指标及近期收盘价。"""
+    # `df` 保留原始 OHLCV 大写列名（Open/High/Low/Close/Volume）；
+    # stockstats 的 `wrap()` 会转为小写并加入指标列。
+    # 因此原始价格读取 `df`，技术指标读取 `stock_df`。
     df = _verified_rows(symbol, as_of_date)
     stock_df = wrap(df.copy())
 

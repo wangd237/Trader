@@ -1,4 +1,4 @@
-"""Jev post screening, against TypeSafe's documented request and response shapes."""
+"""针对 TypeSafe 文档中规定的请求/响应结构测试 Jev 帖子筛选。"""
 
 import pytest
 import requests
@@ -30,7 +30,7 @@ class _Calls(list):
 
 @pytest.fixture
 def post(monkeypatch):
-    """Queue responses on ``.queue``; the list records each call to requests.post."""
+    """通过 ``.queue`` 排队模拟响应，并记录每次 requests.post 调用。"""
     calls = _Calls()
     queue = calls.queue
 
@@ -80,8 +80,8 @@ def test_the_model_follows_the_sdk_environment(post, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.parametrize("base", ["https://openrouter.ai/api", "https://openrouter.ai/api/"])
 def test_the_endpoint_follows_the_sdk_environment(post, monkeypatch, base):
-    """TypeSafe's SDKs read TYPESAFE_BASE_URL and append /v1/systemone; OpenRouter
-    serves Jev at https://openrouter.ai/api with an OpenRouter key (#1416)."""
+    """TypeSafe SDK 读取 TYPESAFE_BASE_URL，并在后面追加 /v1/systemone；
+    OpenRouter 的 Jev 接口为 https://openrouter.ai/api（#1416）。"""
     monkeypatch.setenv("TYPESAFE_BASE_URL", base)
     post.queue.append(_ok())
 
@@ -179,7 +179,7 @@ def _post_answers(about: float, stance: str = "bullish", confidence: float = 0.9
 
 @pytest.fixture
 def jev(post, monkeypatch):
-    """Answer each post by its text: ``post`` maps text -> response."""
+    """根据帖子正文返回回答，``post`` 建立文本到模拟响应的映射。"""
     answers = {}
 
     def fake_post(url, **kwargs):

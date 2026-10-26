@@ -1,5 +1,5 @@
-"""Tests for the Reddit RSS fetcher: one combined request, its 429 backoff, and
-chunked-transfer error handling (#1024)."""
+"""Reddit RSS 获取器回归测试：组合请求、429 退避重试，
+以及分块传输异常降级（#1024）。"""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ _SAMPLE_ATOM = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 def _resp(read_fn):
-    """A minimal context-manager response whose read() runs ``read_fn``."""
+    """最小化上下文管理器响应，其 read() 调用 ``read_fn``。"""
     class _Resp:
         def __enter__(self_inner):
             return self_inner
@@ -116,8 +116,8 @@ class TestRss429Backoff:
         slept.assert_called_once_with(12.0)
 
     def test_retry_after_zero_is_honoured_not_treated_as_absent(self):
-        # A valid "Retry-After: 0" means retry at once; it must not fall through
-        # to the fallback wait (the earlier `or 5.0` bug turned 0 into 5s).
+        # 合法的 Retry-After: 0 表示立即重试，
+        # 不能因使用 `or` 将 0 错误转成默认等待。
         err = HTTPError("url", 429, "Too Many Requests", {"Retry-After": "0"}, None)
         with patch.object(reddit, "urlopen", side_effect=[err, _atom_resp()]), \
              patch.object(reddit.time, "sleep") as slept:
@@ -125,8 +125,8 @@ class TestRss429Backoff:
         slept.assert_called_once_with(0.0)
 
     def test_headerless_429_fallback_is_jittered(self):
-        # No Retry-After -> our own ~5s fallback, jittered so concurrent runs
-        # don't retry in lockstep (kept within a tight band).
+        # 没有 Retry-After 时采用带随机抖动的默认退避，
+        # 避免并发运行同时重试。
         err = HTTPError("url", 429, "Too Many Requests", {}, None)
         with patch.object(reddit, "urlopen", side_effect=[err, _atom_resp()]), \
              patch.object(reddit.time, "sleep") as slept:
@@ -138,16 +138,16 @@ class TestRss429Backoff:
 
 @pytest.mark.unit
 class TestChunkedTransferErrorsHandled:
-    """IncompleteRead/RemoteDisconnected come from http.client and are NOT
-    OSErrors, so they were previously uncaught and crashed the pipeline (#1024)."""
+    """IncompleteRead 和 RemoteDisconnected 来自 http.client，
+    不是 OSError；此前异常未被捕获，可能使整个流程崩溃（#1024）。"""
 
     def test_rss_incomplete_read_reports_unavailable(self):
         with patch.object(reddit, "urlopen", return_value=_raise(http.client.IncompleteRead(b""))):
             assert reddit._fetch_subreddit_rss("NVDA", "stocks", 5, 5.0) is None
 
     def test_oversized_rss_feed_is_refused_not_parsed(self):
-        # A hostile/misbehaving endpoint streaming an unbounded body must not be
-        # read into memory before parsing; overflow degrades to an empty feed.
+        # 恶意或异常端点可能无限流式发送正文，
+        # 必须限制读取大小，超限则按获取失败降级。
         big = _resp(lambda: b"x" * 100)
         with patch.object(reddit, "_MAX_FEED_BYTES", 10), \
              patch.object(reddit, "urlopen", return_value=big):
@@ -171,7 +171,7 @@ class TestFormatterHandlesRssPosts:
 
 @pytest.mark.unit
 class TestCryptoSearchTerm:
-    """A crypto pair (BTC-USD) barely matches Reddit text; search the base (#1113)."""
+    """Reddit 中很少直接使用 BTC-USD 交易对形式，应搜索基础币种（#1113）。"""
 
     def _captured_ticker(self, ticker):
         seen = {}
@@ -193,9 +193,9 @@ class TestCryptoSearchTerm:
 
 @pytest.mark.unit
 class TestOneRequestForAllSubreddits:
-    """Reddit's anonymous RSS allows about one request per minute per IP, so a
-    request per subreddit spent a back-off on nearly every run. One combined
-    feed (``r/a+b+c``) carries each entry's subreddit, so nothing is lost."""
+    """Reddit 匿名 RSS 每 IP 每分钟大约允许一个请求。
+    逐社区请求会频繁进入退避；使用 r/a+b+c 的组合流一次检索，
+    通过条目中的社区来源区分结果，避免丢失社区信息。"""
 
     def _post(self, sub, title="NVDA pops"):
         return {"title": title, "score": None, "num_comments": None,
@@ -211,7 +211,7 @@ class TestOneRequestForAllSubreddits:
 
         with patch.object(reddit, "_fetch_subreddit_rss", side_effect=record):
             reddit.fetch_reddit_posts("NVDA", subreddits=("a", "b", "c"), limit_per_sub=5)
-        # One full page, so a busy subreddit cannot crowd the others out.
+        # 组合搜索使用完整一页，降低热门社区挤占其他社区结果的风险。
         assert calls == [("a+b+c", reddit._FEED_PAGE)]
 
     def test_posts_are_grouped_back_by_subreddit(self):
@@ -221,7 +221,7 @@ class TestOneRequestForAllSubreddits:
         assert out.index("r/a") < out.index("FROM A") < out.index("r/b") < out.index("FROM B")
 
     def test_failed_request_is_unavailable_not_silence(self):
-        # #1295: a throttled fetch must not read as "no posts found".
+        # #1295：限流失败不能解释为确实没有帖子。
         with patch.object(reddit, "_fetch_subreddit_rss", return_value=None):
             out = reddit.fetch_reddit_posts("NVDA", subreddits=("a", "b"))
         assert "Reddit unavailable" in out
@@ -263,8 +263,7 @@ def test_each_subreddit_keeps_its_own_quota():
 
 @pytest.mark.unit
 def test_empty_subreddit_on_a_full_page_is_not_called_empty():
-    # A full page may have cut a quieter subreddit's posts off, so its absence
-    # from the page is not evidence of no posts.
+    # 满页时冷门社区帖子可能被截断，未返回结果不能证明没有讨论。
     full = [{"title": f"A{i}", "created_utc": None, "selftext": "", "subreddit": "a"}
             for i in range(reddit._FEED_PAGE)]
     with patch.object(reddit, "_fetch_subreddit_rss", return_value=full):
@@ -274,7 +273,7 @@ def test_empty_subreddit_on_a_full_page_is_not_called_empty():
 
 
 def _screen_out(*dropped):
-    """A screen that drops posts whose text starts with one of ``dropped``."""
+    """按帖子文本前缀筛选，丢弃以 ``dropped`` 中任意词开头的帖子。"""
     def screen(texts):
         return [not t.startswith(dropped) for t in texts], "Screened: note"
     return screen

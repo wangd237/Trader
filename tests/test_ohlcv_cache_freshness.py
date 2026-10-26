@@ -1,10 +1,8 @@
-"""The OHLCV cache: one file per symbol, fresh only on the day it was written.
+"""OHLCV 缓存每个 ticker 对应一个文件，通常只在写入当天有效。
 
-A current-day request also refetches past a TTL, so a run started before the
-day's bar was final is not served that snapshot all day (#1150). Keying the file
-by symbol rather than by day keeps the cache from growing a file per symbol per
-day (#1330).
-"""
+即使同一天，缓存超过 TTL 也应重新下载，以免开盘前的未定稿 K 线
+一直沿用到收盘后（#1150）。按 ticker 而非日期命名，
+可避免缓存目录逐日膨胀（#1330）。"""
 from __future__ import annotations
 
 import os
@@ -20,8 +18,9 @@ STALE = ohlcv.OHLCV_CACHE_TTL_SECONDS + 60
 
 
 def _stamp(path, ts):
-    """Set ``path``'s mtime to the wall-clock ``ts``, read back in local time as
-    the cache does. A naive ``pd.Timestamp.timestamp()`` would be taken as UTC."""
+    """将 ``path`` 修改时间设为本地时间 ``ts``，
+    读取时也使用与缓存一致的本地时间。
+    无时区 pd.Timestamp.timestamp() 可能被当作 UTC 而引入偏差。"""
     t = ts.to_pydatetime().timestamp()
     os.utime(path, (t, t))
 
@@ -46,7 +45,7 @@ def _fail_download(*a, **k):
 
 @pytest.mark.unit
 def test_current_day_cache_past_ttl_is_not_fresh(tmp_path):
-    # Today's bar missing or still in progress: row inspection can't tell, so the TTL governs.
+    # 今日 K 线可能缺失或未完成，仅看数据行无法识别，由 TTL 决定刷新。
     assert ohlcv._cache_is_fresh(_write(tmp_path, age_seconds=STALE), NOW.normalize(), NOW) is False
     f = _write(tmp_path, age_seconds=STALE, last_date="2026-07-18")
     assert ohlcv._cache_is_fresh(f, NOW.normalize(), NOW) is False
@@ -54,7 +53,7 @@ def test_current_day_cache_past_ttl_is_not_fresh(tmp_path):
 
 @pytest.mark.unit
 def test_recent_cache_is_fresh(tmp_path):
-    # Written moments ago: don't hammer the vendor (weekend/holiday guard).
+    # 缓存刚写入时继续复用，避免周末或假日频繁请求数据源。
     assert ohlcv._cache_is_fresh(_write(tmp_path), NOW.normalize(), NOW) is True
 
 
@@ -72,7 +71,7 @@ def test_a_download_from_an_earlier_day_is_not_fresh(tmp_path):
 
 @pytest.mark.unit
 def test_load_ohlcv_refetches_stale_same_day_cache(tmp_path, monkeypatch):
-    """End-to-end: the freshness check is wired into load_ohlcv's cache branch."""
+    """端到端验证：load_ohlcv 缓存读取分支已经接入新鲜度检查。"""
     _write(tmp_path, age_seconds=STALE)
     calls = []
 
@@ -95,7 +94,7 @@ def test_load_ohlcv_reuses_fresh_same_day_cache(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_one_cache_file_per_symbol_across_days(tmp_path, monkeypatch):
-    """A later day's download replaces the symbol's file instead of adding one (#1330)."""
+    """下一天的数据下载会替换该 ticker 的旧缓存，而不是创建新文件（#1330）。"""
     monkeypatch.setattr(ohlcv, "get_config", lambda: {"data_cache_dir": str(tmp_path)})
     frame = pd.DataFrame({"Date": pd.to_datetime(["2026-07-16", "2026-07-17"]), "Close": [1.0, 2.0]})
     downloads = []

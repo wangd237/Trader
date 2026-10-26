@@ -1,11 +1,9 @@
-"""Memory-log lessons must be point-in-time safe in a backtest (#1251).
+"""回测中的 Memory Log 经验必须满足时点一致性（#1251）。
 
-get_past_context previously returned every resolved lesson regardless of the run
-date, so a historical run could learn from an outcome that had not happened yet.
-Resolved entries now record the date their outcome became known (``resolved:``),
-and get_past_context(as_of=...) filters on it. Legacy entries without a
-resolution date are excluded from a point-in-time query (conservative migration).
-"""
+此前 get_past_context 不区分分析日，可能让历史运行使用未来才产生的收益反思。
+已结算记录现在保存结果变得可知的日期（``resolved:``），
+调用 get_past_context(as_of=...) 时按照该日期过滤。
+没有结算日期的旧记录在历史查询中保守排除，避免信息泄漏。"""
 from __future__ import annotations
 
 import pytest
@@ -36,12 +34,12 @@ def test_resolution_date_is_stored_and_parsed(tmp_path):
 @pytest.mark.unit
 def test_as_of_excludes_lessons_resolved_after_the_run_date(tmp_path):
     log = _log(tmp_path)
-    # Decision on 01-05, outcome only known on 01-10.
+    # 01-05 作出决策，01-10 才知道结果。
     _resolve(log, "NVDA", "2026-01-05", "2026-01-10", "great trade")
 
-    # A run as-of 01-07 must NOT see it (the outcome was still in the future).
+    # 截至 01-07 的运行不能读取这条未来结果。
     assert log.get_past_context("NVDA", as_of="2026-01-07") == ""
-    # A run as-of 01-10 (and later) sees it.
+    # 01-10 或之后的运行可以读取。
     assert "great trade" in log.get_past_context("NVDA", as_of="2026-01-10")
     assert "great trade" in log.get_past_context("NVDA", as_of="2026-02-01")
 
@@ -50,22 +48,22 @@ def test_as_of_excludes_lessons_resolved_after_the_run_date(tmp_path):
 def test_no_as_of_is_unfiltered_live_behavior(tmp_path):
     log = _log(tmp_path)
     _resolve(log, "NVDA", "2026-01-05", "2026-01-10", "great trade")
-    # Live run (no as_of): unchanged behavior, lesson is shown.
+    # 实时运行未提供 as_of 时继续展示该经验。
     assert "great trade" in log.get_past_context("NVDA")
 
 
 @pytest.mark.unit
 def test_legacy_entry_without_resolution_date_excluded_in_backtest(tmp_path):
     log = _log(tmp_path)
-    # Simulate a pre-migration resolved entry: no resolution_date recorded.
+    # 模拟迁移前已结算但缺少 resolution_date 的旧记录。
     log.store_decision("NVDA", "2026-01-05", "Rating: Buy\nlegacy lesson")
     log.update_with_outcome("NVDA", "2026-01-05", 0.05, 0.02, 5, "legacy lesson")
     entry = log.load_entries()[0]
     assert entry["resolved"] is None
 
-    # Conservative: excluded from a point-in-time query (can't prove it was known)...
+    # 保守处理：无法证明当时已经知道结果，因此历史查询中排除。
     assert log.get_past_context("NVDA", as_of="2026-06-01") == ""
-    # ...but still available on a live (unfiltered) run.
+    # 但实时、未过滤的运行仍可读取。
     assert "legacy lesson" in log.get_past_context("NVDA")
 
 
@@ -73,15 +71,15 @@ def test_legacy_entry_without_resolution_date_excluded_in_backtest(tmp_path):
 def test_cross_ticker_lessons_are_also_gated(tmp_path):
     log = _log(tmp_path)
     _resolve(log, "AAPL", "2026-01-05", "2026-01-10", "cross lesson")
-    # Querying a different ticker as-of before resolution: no cross lesson leaks.
+    # 在结算前查询其他 ticker，也不能泄漏跨标的历史经验。
     assert log.get_past_context("NVDA", as_of="2026-01-07") == ""
     assert "cross lesson" in log.get_past_context("NVDA", as_of="2026-01-10")
 
 
 @pytest.mark.unit
 def test_memory_as_of_gates_historical_but_not_live():
-    # The graph filters only for a past trade date; a current-date run passes
-    # None so live behavior and legacy entries are unaffected (#1251).
+    # Graph 仅在历史交易日期执行过滤；今天的运行传入 None，
+    # 保留实时逻辑及对旧记录的兼容（#1251）。
     from datetime import datetime, timedelta
 
     from tradingagents.graph.trading_graph import TradingAgentsGraph

@@ -1,9 +1,7 @@
-"""A Yahoo rate limit is retried, then reported as a rate limit.
+"""Yahoo 限流应先退避重试，耗尽后明确报告限流。
 
-When the limit outlasts the retries, the agent must hear that the vendor is
-throttled. "The symbol may be invalid or delisted" is a claim about the company
-that nobody checked, and an exception out of a tool ends the run.
-"""
+如果模型收到“股票可能无效或退市”，就会把未验证的提供商故障
+误当作公司事实；但工具异常也不能直接终止运行。"""
 
 import pandas as pd
 import pytest
@@ -56,7 +54,7 @@ def test_a_rate_limit_that_outlasts_the_retries_is_reported_as_one(yahoo, tool, 
     yahoo.setattr(yf.Ticker, "insider_transactions", property(_rate_limited))
     yahoo.setattr(yf, "Search", _rate_limited)
 
-    # Dated today: a past run is not served insider trades at all.
+    # 本例为当日调用；历史运行根本不应返回没有披露日期的内部人交易。
     out = tool.func(*args, trade_date=get_current_date())
 
     assert out.startswith("DATA_UNAVAILABLE"), out
@@ -65,8 +63,8 @@ def test_a_rate_limit_that_outlasts_the_retries_is_reported_as_one(yahoo, tool, 
 
 @pytest.mark.unit
 def test_the_indicator_path_retries_a_rate_limit(yahoo):
-    """The prices behind every indicator were fetched with ``yf.download``, which
-    returns an empty frame for a 429, so they were never retried."""
+    """技术指标行情通过 yf.download 获取；该函数对 HTTP 429 返回空表，
+    导致旧实现不会重试。"""
     bar = pd.DataFrame({"Open": [1.0], "High": [1.0], "Low": [1.0], "Close": [1.0],
                         "Volume": [100]}, index=pd.DatetimeIndex([DAY], name="Date"))
     answers = [YFRateLimitError(), bar]
@@ -92,8 +90,8 @@ def test_yfinance_raises_the_rate_limit_from_history(yahoo):
 
 @pytest.mark.unit
 def test_fundamentals_ask_a_new_ticker_after_a_rate_limit(yahoo):
-    """A Ticker keeps a failed ``info`` fetch as done, so asking the same one
-    again reads an empty profile, which looks like a symbol with no data."""
+    """Ticker 会记住曾经失败的 info 请求；重复使用同一实例可能持续返回空值，
+    看起来像是标的确实无数据。"""
 
     class Ticker:
         def __init__(self, symbol):
@@ -115,8 +113,8 @@ def test_fundamentals_ask_a_new_ticker_after_a_rate_limit(yahoo):
 
 @pytest.mark.unit
 def test_a_price_request_that_raises_is_unavailable_whether_or_not_yahoo_answers(yahoo):
-    """An unknown symbol comes back from ``Ticker.history`` as an empty frame, so
-    a request that raised failed in transit, and says nothing about the symbol."""
+    """Ticker.history 对不存在的代码返回空表；
+    真正抛异常时只能证明请求传输失败，不能推断代码不存在。"""
 
     def refused(self, **kwargs):
         raise ConnectionError("curl: (7) Failed to connect to query2.finance.yahoo.com")
@@ -130,7 +128,7 @@ def test_a_price_request_that_raises_is_unavailable_whether_or_not_yahoo_answers
 
 @pytest.mark.unit
 def test_a_price_request_that_fails_is_unavailable_even_when_yahoo_answers(monkeypatch, tmp_path):
-    """A timeout says nothing about the symbol; a reachable host does not make it one."""
+    """超时并不能说明代码情况，主机可达也不等于该请求正常完成。"""
     def timed_out(**kwargs):
         raise TimeoutError("read timed out")
 
@@ -143,7 +141,7 @@ def test_a_price_request_that_fails_is_unavailable_even_when_yahoo_answers(monke
 
 
 class _Unreachable:
-    """A Ticker whose every request fails in transit."""
+    """模拟所有请求都在传输过程中失败的 Ticker。"""
 
     def __init__(self, *args, **kwargs):
         pass
@@ -172,7 +170,7 @@ def _yahoo_calls():
 @pytest.mark.unit
 @pytest.mark.parametrize("call", _yahoo_calls())
 def test_a_yahoo_request_that_fails_is_unavailable_not_absent(yahoo, call):
-    """An unknown symbol comes back empty, so a request that raised failed in transit."""
+    """无效代码通常返回空值；抛异常说明调用过程失败。"""
     yahoo.setattr(yf, "Ticker", _Unreachable)
     yahoo.setattr(yf, "Search", _Unreachable)
 
@@ -187,7 +185,7 @@ def test_a_yahoo_request_that_fails_is_unavailable_not_absent(yahoo, call):
                                "Low": [1.0], "Close": [1.0], "Volume": [1]}), id="no_row_by_the_date"),
 ])
 def test_a_snapshot_with_no_rows_is_reported_not_raised(yahoo, frame):
-    """An exception out of a tool ends the run; no rows is an answer about the symbol."""
+    """工具未处理异常会终止运行；真正正常返回空结果才可能代表标的无数据。"""
     from tradingagents.dataflows.errors import NoMarketDataError
     from tradingagents.dataflows.vendors.yahoo import snapshot
 
@@ -204,7 +202,7 @@ def test_a_snapshot_with_no_rows_is_reported_not_raised(yahoo, frame):
 
 
 def _yahoo_request_raises(yahoo, exc):
-    """Every request yfinance makes raises ``exc``, below its own error handling."""
+    """模拟 yfinance 内部所有请求抛出 ``exc``。"""
     from yfinance.data import YfData
 
     def request(self, *args, **kwargs):
@@ -216,8 +214,8 @@ def _yahoo_request_raises(yahoo, exc):
 @pytest.mark.unit
 @pytest.mark.parametrize("call", _yahoo_calls())
 def test_a_request_that_yfinance_would_swallow_is_unavailable(yahoo, call):
-    """yfinance answers some failed requests with an empty result; an empty
-    statement from a Yahoo whose host answers a probe read as "no data"."""
+    """yfinance 有时将失败转换成空结果；
+    若 Yahoo 主机可达，仍不能贸然把空财报解释成真实无数据。"""
     _yahoo_request_raises(yahoo, TimeoutError("read timed out"))
 
     with pytest.raises(VendorUnavailableError):
@@ -227,7 +225,7 @@ def test_a_request_that_yfinance_would_swallow_is_unavailable(yahoo, call):
 @pytest.mark.unit
 @pytest.mark.parametrize("call", [c for c in _yahoo_calls() if c.id in ("fundamentals", "stock_data", "insider")])
 def test_yahoo_answering_not_found_is_no_data(yahoo, call):
-    """Yahoo answers an unknown symbol with HTTP 404: an answer about the symbol, not an outage."""
+    """Yahoo 对未知代码返回 HTTP 404，这是标的不存在的响应，不是服务故障。"""
     from curl_cffi.requests import Response
     from curl_cffi.requests.exceptions import HTTPError
 
@@ -254,8 +252,8 @@ def test_yahoo_answering_not_found_is_no_data(yahoo, call):
                  id="yahoo_reports_a_service_failure"),
 ])
 def test_only_yahoo_saying_a_window_has_no_prices_is_no_data(yahoo, debug, reason, absent):
-    """yfinance raises YFPricesMissingError both when Yahoo answered with no prices
-    and when its answer was an error; only the first is a fact about the symbol."""
+    """YFPricesMissingError 既可能表示 Yahoo 明确无价格，也可能包含请求错误；
+    只有前者可视为关于标的的真实结论。"""
     from yfinance.exceptions import YFPricesMissingError
 
     from tradingagents.dataflows.errors import NoMarketDataError
@@ -272,7 +270,7 @@ def test_only_yahoo_saying_a_window_has_no_prices_is_no_data(yahoo, debug, reaso
 
 @pytest.mark.unit
 def test_a_missing_time_zone_is_not_taken_for_an_answer(yahoo):
-    """yfinance reports a failed time-zone lookup the same way as a symbol without one."""
+    """时区查询失败与代码确实无时区的错误形式可能相同，不能混淆。"""
     from yfinance.exceptions import YFTzMissingError
 
     from tradingagents.dataflows.vendors.yahoo import market

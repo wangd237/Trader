@@ -1,4 +1,4 @@
-"""Files written whole, and held by one writer at a time, under concurrent writers."""
+"""并发写入文件的辅助函数：保证完整替换文件，并让同一时刻只有一个写入者。"""
 
 import errno
 import logging
@@ -12,14 +12,13 @@ logger = logging.getLogger(__name__)
 
 
 def replace_file(path, write: Callable[[str], None]) -> None:
-    """Write ``path`` through a uniquely named temp file beside it, then move it into place.
+    """先写入同目录下唯一命名的临时文件，再将它移动到 ``path``。
 
-    A reader sees the old file or the new one, never a partial write, and two
-    writers of the same path (tool calls run concurrently) never share a temp file.
-    ``write`` receives the temp path and creates the file, so it gets the usual
-    permissions. The file is a cache: where another reader holds it open (Windows),
-    the old one stays and the write is skipped.
-    """
+    读取者只会看到旧文件或新文件，不会看到不完整的内容；
+    同时写入同一路径的任务也不会共用临时文件。
+    回调 ``write`` 接收临时路径并创建文件，沿用常规文件权限。
+    由于这里写的是缓存文件，如果 Windows 上有读取者占用旧文件，
+    则跳过本次替换，保留原文件。"""
     path = Path(path)
     temp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -35,14 +34,13 @@ def replace_file(path, write: Callable[[str], None]) -> None:
 
 @contextmanager
 def locked(path, wait: bool = True) -> Iterator[bool]:
-    """Hold ``path`` for one writer at a time, across threads and processes.
+    """跨线程与进程确保同一时间只有一个写入者持有 ``path``。
 
-    For a file read, changed and written back: without the lock, two writers
-    each read the same text and the second write drops the first's change. The
-    lock is taken on a ``.lock`` file beside ``path``. Yields whether it is
-    held: with ``wait=False`` a lock someone else holds is not waited for, and
-    the block runs holding nothing.
-    """
+    用于读取、修改、再写回的场景：若不加锁，两个写入者可能
+    都读到相同旧内容，后一次写入会覆盖前一次更新。
+    锁位于 ``path`` 旁的 ``.lock`` 文件。返回是否已获得锁；
+    ``wait=False`` 时不会等待其他写入者，未获取锁也会进入代码块，
+    但此时不持有锁。"""
     with open(f"{path}.lock", "a+b") as handle:
         hold = _hold_windows if os.name == "nt" else _hold_posix
         with hold(handle, wait) as acquired:
@@ -77,8 +75,8 @@ def _hold_windows(handle, wait: bool = True) -> Iterator[bool]:
             if not wait and exc.errno in (errno.EACCES, errno.EDEADLOCK):
                 yield False   # another writer holds it
                 return
-            # LK_LOCK gives up after about ten seconds of another writer's hold;
-            # any other failure is not a wait.
+            # 当其他写入者占有锁超过约十秒时，LK_LOCK 会放弃等待；
+            # 其他错误不能视为普通的锁等待。
             if exc.errno != errno.EDEADLOCK:
                 raise
     try:

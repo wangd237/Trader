@@ -1,11 +1,8 @@
-"""Tests that empty vendor results never become fabricated data.
+"""测试数据源空结果不会导致下游编造数据。
 
-Covers two systematic fixes:
-  - load_ohlcv must not cache an empty download (cache poisoning), and must
-    raise NoMarketDataError instead of returning an empty frame.
-  - route_to_vendor must convert NoMarketDataError into a single explicit
-    "NO_DATA_AVAILABLE" sentinel after all vendors are exhausted.
-"""
+覆盖两个修复：load_ohlcv 不应缓存空下载结果以免污染缓存，
+而应抛出 NoMarketDataError；route_to_vendor 在所有提供商
+耗尽后，将该异常转换成统一的 NO_DATA_AVAILABLE 标记。"""
 
 import os
 import unittest
@@ -35,17 +32,17 @@ class TestLoadOhlcvNoPoison(unittest.TestCase):
 
     def test_empty_download_raises_and_does_not_cache(self):
         empty = mock.Mock(history=mock.Mock(return_value=pd.DataFrame()))
-        # Yahoo answers, so an empty download means the symbol has no data.
+        # Yahoo 正常响应，因此空下载表示当前标的无数据。
         reachable = mock.patch.object(common, "vendor_reachable", return_value=True)
         reachable.start()
         self.addCleanup(reachable.stop)
         with mock.patch.object(ohlcv.yf, "Ticker", return_value=empty), \
                 self.assertRaises(NoMarketDataError):
             ohlcv.load_ohlcv("FAKE", "2026-01-01")
-        # Nothing should have been written to the cache.
+        # 此时不能写入缓存。
         self.assertEqual(os.listdir(self._tmp), [])
 
-        # A second call must re-attempt the fetch (no poisoned cache served).
+        # 再次调用必须重新请求，不能使用被污染的空缓存。
         with mock.patch.object(ohlcv.yf, "Ticker", return_value=empty) as dl2:
             with self.assertRaises(NoMarketDataError):
                 ohlcv.load_ohlcv("FAKE", "2026-01-01")
@@ -71,9 +68,8 @@ class TestRouteToVendorSentinel(unittest.TestCase):
         self.assertIn("Do not estimate", result)
 
     def test_unconfigured_fallback_does_not_mask_no_data(self):
-        # When the primary vendor reports no data and the fallback is simply
-        # unavailable (e.g. missing API key -> raises), the no-data sentinel
-        # must win rather than the fallback's incidental error crashing out.
+        # 主提供商明确无数据、后备提供商仅因缺少密钥等原因不可用时，
+        # 应返回无数据标记，而非让后备提供商的次要异常终止调用。
         def raises_no_data(symbol, *a, **k):
             raise NoMarketDataError(symbol, symbol, "no rows")
 

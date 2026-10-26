@@ -68,8 +68,8 @@ def test_legacy_ids_stay_valid_without_being_offered():
 
 @pytest.mark.unit
 def test_an_explicit_alias_of_a_listed_model_is_known():
-    """gpt-5.6 is served under its own name and as gpt-5.6-sol; naming the
-    explicit one should not warn that the model is unknown."""
+    """gpt-5.6 既支持自身 ID，也支持 gpt-5.6-sol 别名；
+    使用明确模型名时不应发出未知模型警告。"""
     from tradingagents.llm_clients.validators import validate_model
 
     assert validate_model("openai", "gpt-5.6-sol")
@@ -79,8 +79,8 @@ def test_an_explicit_alias_of_a_listed_model_is_known():
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "google", "xai"])
 @pytest.mark.parametrize("mode", ["quick", "deep"])
 def test_every_provider_lets_you_name_your_own_model(provider, mode):
-    """The docs tell users to name any model their provider serves; the picker
-    has to offer that too, or a new model is unreachable until we ship a list."""
+    """文档允许指定提供商实际支持的任意模型，选择器必须支持自定义 ID，
+    使新模型无需等待本项目发布新版本即可使用。"""
     from tradingagents.llm_clients.model_catalog import get_model_options
 
     assert "custom" in [value for _, value in get_model_options(provider, mode)]
@@ -93,8 +93,8 @@ def test_every_provider_lets_you_name_your_own_model(provider, mode):
     ("qwen", "qwen3.7-max"),
 ])
 def test_a_retired_model_id_still_runs_without_a_warning(provider, model):
-    """A config written against an earlier release keeps working: the provider
-    still serves these, they are just no longer offered in the picker."""
+    """旧版配置仍应有效；某些模型虽然从菜单消失，
+    但提供商仍支持它们，不能因此拒绝运行。"""
     from tradingagents.llm_clients.validators import validate_model
 
     assert validate_model(provider, model)

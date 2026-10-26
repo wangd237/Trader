@@ -1,11 +1,8 @@
-"""A decision is recorded as the call that was made, or as needing review.
+"""必须按实际决策记录评级，无法识别时统一标为 REVIEW。
 
-Two readers used to disagree about the same text: the signal said REVIEW while
-the memory log wrote a fabricated Hold. Worse, prose that argued against a Buy
-before concluding Underweight was read as Buy, because the parser took the first
-rating word anywhere in the document. A wrong direction is worse than no
-direction, so an unclear decision is REVIEW everywhere.
-"""
+以前信号解析器返回 REVIEW，Memory Log 却凭空写入 Hold；
+或者正文先讨论反对 Buy、最后给出 Underweight，却被解析成 Buy。
+错误方向比没有方向更危险，因此所有入口必须使用相同规则。"""
 
 from __future__ import annotations
 
@@ -34,8 +31,7 @@ def test_a_rating_argued_against_is_not_read_as_the_decision():
 
 @pytest.mark.unit
 def test_prose_naming_several_ratings_without_a_label_needs_review():
-    """Nothing in the text says which one is the call, so guessing risks
-    reporting the opposite of the decision."""
+    """文本未指明最终评级时，猜测可能得出与真实决策相反的结果。"""
     text = "The bull wants Buy, the bear wants Sell, and the committee was split."
     assert extract_rating(text) is None
 
@@ -47,7 +43,7 @@ def test_prose_naming_several_ratings_without_a_label_needs_review():
     "On balance we stay Underweight until margins recover.",
 ])
 def test_a_rating_word_without_a_label_is_not_read_as_the_call(prose):
-    """A rating word in prose may be one the text argues against (#1435)."""
+    """正文中的评级词可能正是模型反对的方向（#1435）。"""
     assert extract_rating(prose) is None
     assert parse_rating(prose) == RATING_REVIEW
 
@@ -60,8 +56,7 @@ def test_a_refusal_has_no_rating_and_is_not_defaulted():
 
 @pytest.mark.unit
 def test_the_scale_quoted_in_a_prompt_does_not_become_the_rating():
-    """A free-text answer that echoes the rating scale was read as the first
-    tier listed in it."""
+    """普通文本可能复述整个评级刻度，不能把第一项当作实际决策。"""
     text = ("**Rating Scale**: Buy, Overweight, Hold, Underweight, Sell.\n\n"
             "**Rating**: Sell\n\nExit the position.")
     assert extract_rating(text) == "Sell"
@@ -96,7 +91,7 @@ def test_the_signal_and_the_log_agree_on_the_same_decision(tmp_path):
 
 @pytest.mark.unit
 def test_an_unscored_decision_is_left_out_of_the_backtest_figures(tmp_path):
-    """REVIEW has no direction, so it cannot count for or against the system."""
+    """REVIEW 不代表方向，不能计入预测正确或错误。"""
     from tradingagents.backtest import summarize
     from tradingagents.memory import TradingMemoryLog
 
@@ -112,8 +107,7 @@ def test_an_unscored_decision_is_left_out_of_the_backtest_figures(tmp_path):
 
 @pytest.mark.unit
 def test_the_cli_says_when_a_run_produced_no_usable_rating(monkeypatch, tmp_path, capsys):
-    """The CLI is the primary entry point; an unreadable decision must be
-    visible there, not only in the log."""
+    """CLI 是主要入口，无法解析的决策必须在 CLI 中明确显示。"""
     import cli.main as m
     from cli.models import AnalystType
 
@@ -177,9 +171,8 @@ def test_the_cli_says_when_a_run_produced_no_usable_rating(monkeypatch, tmp_path
     ("tradingagents.agents.trader.trader", "create_trader", "Action"),
 ])
 def test_a_decision_prompt_states_the_shape_of_its_answer(module, factory, must_name):
-    """The field descriptions live in the schema, which a provider without
-    structured output never sees. Without the format in the prompt body, the
-    fallback answer is prose nobody can read a rating from."""
+    """不支持结构化输出的提供商看不到 Schema 字段描述，
+    因此回退路径的 Prompt 正文也必须明确规定评级格式。"""
     import importlib
 
     from langchain_core.messages import AIMessage
@@ -217,9 +210,8 @@ def test_a_decision_prompt_states_the_shape_of_its_answer(module, factory, must_
 
 @pytest.mark.unit
 def test_a_state_without_the_typed_rating_reads_it_from_the_decision():
-    """A run finished by an older version and resumed from its checkpoint has
-    no final_rating; every reader falls back the same way instead of one
-    raising and another reporting REVIEW."""
+    """旧版运行恢复后可能没有 final_rating 字段；
+    所有读取者必须使用同一回退方法，而非各自报错或输出 REVIEW。"""
     from tradingagents.agents.rating import run_rating
 
     assert run_rating({"final_rating": "Hold", "final_trade_decision": "**Rating**: Buy"}) == "Hold"
@@ -234,8 +226,8 @@ def test_a_state_without_the_typed_rating_reads_it_from_the_decision():
     "Operating margin: Sell-side estimates sit below guidance.",
 ])
 def test_a_rating_the_text_quotes_does_not_replace_the_decision(quoted):
-    """A free-text decision opens with its own rating line; a rating it quotes
-    as evidence, or a word merely ending in 'rating', is not the call."""
+    """自由文本决策应以自身评级行开头；引用的他人评级或词尾包含 rating
+    的普通文字都不能被当作正式决策。"""
     text = f"**Rating**: Hold\n\n**Investment Thesis**: {quoted} We wait for margins."
     assert extract_rating(text) == "Hold"
 
@@ -261,7 +253,7 @@ def test_a_quoted_rating_in_a_list_table_or_quote_is_not_the_decision(quoted):
     ("Street rating: Sell\nOur rating: Buy", "Buy"),
     ("Credit rating: Sell\nRating: Buy", "Buy"),
     ("Sell-side consensus rating: Buy\n**Rating**: Hold", "Hold"),
-    # the decision opens with its rating, as the prompt asks
+    # 按 Prompt 要求，决策开头应包含自身评级。
     ("- **Rating**: Sell\n\nConsensus rating: Buy", "Sell"),
     ("- **Rating**: Sell\n- **Investment Thesis**: consensus rating: Buy, we disagree.", "Sell"),
     ("1. **Rating**: Underweight\n2. **Executive Summary**: Street rating: Buy.", "Underweight"),
@@ -271,14 +263,14 @@ def test_a_quoted_rating_in_a_list_table_or_quote_is_not_the_decision(quoted):
     ("Updated rating: Sell\nPrevious rating: Buy", "Sell"),
     ("Our final rating: Sell\nConsensus rating: Buy", "Sell"),
     ("**Overall Final Rating**: Sell\nConsensus rating: Buy", "Sell"),
-    # ratings quoted as list items before the decision's own line
+    # 决策正文前作为列表引用的评级不应抢占最终评级。
     ("Broker views:\n- Rating: Buy (Morgan Stanley)\n- Rating: Hold (Goldman)\n\n**Rating**: Sell", "Sell"),
     ("Previous decision recap:\n- **Rating**: Buy (2026-09-01)\n\n**Rating**: Sell", "Sell"),
     ("Lessons:\n- Rating: Buy was wrong last time\n\n**Rating**: Hold", "Hold"),
 ])
 def test_a_rating_someone_else_gave_does_not_become_the_decision(text, expected):
-    """The decision's own rating line is read as the call; another party's
-    rating, even on a line of its own, is evidence, not the call (#1466)."""
+    """决策自身的评级行才是最终评级；
+    他人在独立行中给出的评级仍属于论据（#1466）。"""
     assert extract_rating(text) == expected
 
 
@@ -298,6 +290,6 @@ def test_a_rating_someone_else_gave_does_not_become_the_decision(text, expected)
     "## Street view\n1. Rating: Buy, target $250 (JPM)\n\n## Our call\n**Rating**: Underweight",
 ])
 def test_ratings_that_disagree_with_no_line_of_the_decisions_own_need_review(text):
-    """When the text never states its own rating in the decision's shape and the
-    ratings it names disagree, nobody can tell which is the call (#1170)."""
+    """如果文本没有明确给出自身评级，且所提及的方向相互冲突，
+    就无法可靠判断实际选择（#1170）。"""
     assert extract_rating(text) is None

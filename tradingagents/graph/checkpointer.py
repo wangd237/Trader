@@ -1,7 +1,6 @@
-"""LangGraph checkpoint support for resumable analysis runs.
+"""为分析任务提供可恢复的 LangGraph 检查点支持。
 
-Per-ticker SQLite databases so concurrent tickers don't contend.
-"""
+每个 ticker 使用独立的 SQLite 数据库，避免不同标的之间的并发竞争。"""
 
 from __future__ import annotations
 
@@ -17,8 +16,8 @@ from tradingagents.dataflows.symbols import safe_ticker_component
 
 
 def _db_path(data_dir: str | Path, ticker: str) -> Path:
-    """Return the SQLite checkpoint DB path for a ticker."""
-    # Reject ticker values that would escape the checkpoints directory.
+    """返回指定 ticker 的 SQLite 检查点数据库路径。"""
+    # 拒绝可能导致路径逃逸到检查点目录之外的 ticker。
     safe = safe_ticker_component(ticker).upper()
     p = Path(data_dir) / "checkpoints"
     p.mkdir(parents=True, exist_ok=True)
@@ -26,12 +25,10 @@ def _db_path(data_dir: str | Path, ticker: str) -> Path:
 
 
 def thread_id(ticker: str, date: str, signature: str = "") -> str:
-    """Deterministic thread ID for a ticker+date pair.
+    """根据 ticker 和日期生成确定性的线程 ID。
 
-    ``signature`` folds in graph-shape-affecting run choices so a resume under a
-    different graph can't reuse this checkpoint (#1089); omitting it keeps the
-    legacy ID.
-    """
+    ``signature`` 包含影响图结构的运行选项，避免使用不同图配置恢复时
+    复用旧检查点（#1089）；省略签名时仍兼容旧版线程 ID。"""
     base = f"{ticker.upper()}:{date}"
     if signature:
         base = f"{base}:{signature}"
@@ -40,7 +37,7 @@ def thread_id(ticker: str, date: str, signature: str = "") -> str:
 
 @contextmanager
 def get_checkpointer(data_dir: str | Path, ticker: str) -> Generator[SqliteSaver, None, None]:
-    """Context manager yielding a SqliteSaver backed by a per-ticker DB."""
+    """上下文管理器：返回使用当前 ticker 专属数据库的 SqliteSaver。"""
     db = _db_path(data_dir, ticker)
     conn = sqlite3.connect(str(db), check_same_thread=False)
     try:
@@ -52,7 +49,7 @@ def get_checkpointer(data_dir: str | Path, ticker: str) -> Generator[SqliteSaver
 
 
 def checkpoint_step(data_dir: str | Path, ticker: str, date: str, signature: str = "") -> int | None:
-    """Return the step number of the latest checkpoint, or None if none exists."""
+    """返回最新检查点的步骤编号；若不存在则返回 None。"""
     db = _db_path(data_dir, ticker)
     if not db.exists():
         return None
@@ -66,12 +63,10 @@ def checkpoint_step(data_dir: str | Path, ticker: str, date: str, signature: str
 
 
 def clear_all_checkpoints(data_dir: str | Path) -> int:
-    """Remove all checkpoint databases. Returns the number of databases deleted.
+    """删除全部检查点数据库，并返回删除的数据库数量。
 
-    SQLite keeps committed state in ``-wal`` and ``-shm`` files beside the
-    database, so deleting only the ``.db`` leaves a cleared checkpoint with data
-    still on disk.
-    """
+    SQLite 会将已提交状态写入数据库旁的 ``-wal`` 和 ``-shm`` 文件；
+    如果只删除 ``.db``，仍可能有检查点数据留在磁盘上。"""
     cp_dir = Path(data_dir) / "checkpoints"
     if not cp_dir.exists():
         return 0
@@ -83,7 +78,7 @@ def clear_all_checkpoints(data_dir: str | Path) -> int:
 
 
 def clear_checkpoint(data_dir: str | Path, ticker: str, date: str, signature: str = "") -> None:
-    """Remove checkpoint for a specific ticker+date by deleting the thread's rows."""
+    """通过删除对应线程的记录，清除指定 ticker 和日期的检查点。"""
     db = _db_path(data_dir, ticker)
     if not db.exists():
         return

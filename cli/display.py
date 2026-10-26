@@ -1,4 +1,4 @@
-"""The live view of a run: message log, agent status, report panels and timings."""
+"""运行过程的实时界面：消息日志、Agent 状态、报告面板和耗时信息。"""
 
 import datetime
 import time
@@ -24,7 +24,7 @@ console = Console()
 
 
 class MessageBuffer:
-    # Fixed teams that always run (not user-selectable)
+    # 固定执行的团队，不允许用户选择。
     FIXED_AGENTS = {
         "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
         "Trading Team": ["Trader"],
@@ -32,7 +32,7 @@ class MessageBuffer:
         "Portfolio Management": ["Portfolio Manager"],
     }
 
-    # Analyst name mapping
+    # 分析师名称映射。
     ANALYST_MAPPING = {
         "market": "Market Analyst",
         "social": "Sentiment Analyst",
@@ -40,9 +40,9 @@ class MessageBuffer:
         "fundamentals": "Fundamentals Analyst",
     }
 
-    # Report section mapping: section -> (analyst_key for filtering, finalizing_agent)
-    # analyst_key: which analyst selection controls this section (None = always included)
-    # finalizing_agent: which agent must be "completed" for this report to count as done
+    # 报告章节映射：section →（用于筛选的 analyst_key、负责最终提交的 Agent）。
+    # analyst_key 决定是否根据用户选择显示该章节（None 表示始终显示）；
+    # finalizing_agent 必须进入 "completed" 状态，报告才算完成。
     REPORT_SECTIONS = {
         "market_report": ("market", "Market Analyst"),
         "sentiment_report": ("social", "Sentiment Analyst"),
@@ -63,11 +63,10 @@ class MessageBuffer:
         self._processed_message_ids = set()
 
     def init_for_analysis(self, selected_analysts):
-        """Initialize agent status and report sections based on selected analysts.
+        """根据选中的分析师初始化 Agent 状态和报告章节。
 
-        Args:
-            selected_analysts: List of analyst type strings (e.g., ["market", "news"])
-        """
+        参数：
+            selected_analysts：分析师类型字符串列表，例如 ["market", "news"]。"""
         self.selected_analysts = [a.lower() for a in selected_analysts]
 
         self.agent_status = {}
@@ -85,27 +84,25 @@ class MessageBuffer:
             if analyst_key is None or analyst_key in self.selected_analysts:
                 self.report_sections[section] = None
 
-        # Reset other state
+        # 重置其他运行状态。
         self.current_report = None
         self.messages.clear()
         self.tool_calls.clear()
         self._processed_message_ids.clear()
 
     def get_completed_reports_count(self):
-        """Count reports that are finalized (their finalizing agent is completed).
+        """统计已经最终完成的报告（相应负责收尾的 Agent 已完成）。
 
-        A report is considered complete when:
-        1. The report section has content (not None), AND
-        2. The agent responsible for finalizing that report has status "completed"
-
-        This prevents interim updates (like debate rounds) from counting as completed.
-        """
+        报告计为完成必须同时满足：
+        1. 对应章节有实际内容（不为 None）；
+        2. 负责最终提交的 Agent 状态为 "completed"。
+        这样可以防止把辩论轮次中的中间结果误计为已完成报告。"""
         count = 0
         for section in self.report_sections:
             if section not in self.REPORT_SECTIONS:
                 continue
             _, finalizing_agent = self.REPORT_SECTIONS[section]
-            # Report is complete if it has content AND its finalizing agent is done
+            # 报告必须有内容，且负责最终提交的 Agent 已完成，才算完成。
             has_content = self.report_sections.get(section) is not None
             agent_done = self.agent_status.get(finalizing_agent) == "completed"
             if has_content and agent_done:
@@ -130,7 +127,7 @@ class MessageBuffer:
             self._update_current_report()
 
     def _update_current_report(self):
-        # For the panel display, only show the most recently updated section
+        # 面板只显示最近更新的报告章节。
         latest_section = None
         latest_content = None
 
@@ -174,14 +171,14 @@ def create_layout():
 
 
 def format_tokens(n):
-    """Format token count for display."""
+    """格式化 token 数量以便在界面显示。"""
     if n >= 1000:
         return f"{n/1000:.1f}k"
     return str(n)
 
 
 def update_display(layout, spinner_text=None, stats_handler=None, start_time=None):
-    # Header with welcome message
+    # 包含欢迎消息的顶部标题栏。
     layout["header"].update(
         Panel(
             "[bold green]Welcome to Trader CLI[/bold green]\n"
@@ -193,7 +190,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
         )
     )
 
-    # Progress panel showing agent status
+    # 显示 Agent 状态的进度面板。
     progress_table = Table(
         show_header=True,
         header_style="bold magenta",
@@ -207,7 +204,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     progress_table.add_column("Agent", style="green", justify="center", width=20)
     progress_table.add_column("Status", style="yellow", justify="center", width=20)
 
-    # Group agents by team - filter to only include agents in agent_status
+    # 按团队分组 Agent，只保留 agent_status 中存在的成员。
     all_teams = {
         "Analyst Team": [
             "Market Analyst",
@@ -266,7 +263,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
         Panel(progress_table, title="Progress", border_style="cyan", padding=(1, 2))
     )
 
-    # Messages panel showing recent messages and tool calls
+    # 显示近期消息和工具调用的面板。
     messages_table = Table(
         show_header=True,
         header_style="bold magenta",
@@ -282,7 +279,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
         "Content", style="white", no_wrap=False, ratio=1
     )  # Make content column expand
 
-    # Combine tool calls and messages
+    # 合并工具调用记录与普通消息。
     all_messages = []
 
     for timestamp, tool_name, args in message_buffer.tool_calls:
@@ -295,7 +292,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
             content_str = content_str[:197] + "..."
         all_messages.append((timestamp, msg_type, content_str))
 
-    # Sort by timestamp descending (newest first)
+    # 按时间倒序排列，最新的放在前面。
     all_messages.sort(key=lambda x: x[0], reverse=True)
 
     max_messages = 12
@@ -315,7 +312,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
         )
     )
 
-    # Analysis panel showing current report
+    # 用于展示当前报告的分析面板。
     if message_buffer.current_report:
         layout["analysis"].update(
             Panel(
@@ -335,26 +332,25 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
             )
         )
 
-    # Footer with statistics
-    # Agent progress - derived from agent_status dict
+    # 底部统计栏；Agent 进度从 agent_status 字典计算。
     agents_completed = sum(
         1 for status in message_buffer.agent_status.values() if status == "completed"
     )
     agents_total = len(message_buffer.agent_status)
 
-    # Report progress - based on agent completion (not just content existence)
+    # 报告进度以 Agent 是否完成为准，不能只判断内容是否存在。
     reports_completed = message_buffer.get_completed_reports_count()
     reports_total = len(message_buffer.report_sections)
 
     stats_parts = [f"Agents: {agents_completed}/{agents_total}"]
 
-    # LLM and tool stats from callback handler
+    # 从回调处理器读取 LLM 与工具调用统计。
     if stats_handler:
         stats = stats_handler.get_stats()
         stats_parts.append(f"LLM: {stats['llm_calls']}")
         stats_parts.append(f"Tools: {stats['tool_calls']}")
 
-        # Token display with graceful fallback
+        # 显示 token 统计，并提供缺失数据时的降级处理。
         if stats["tokens_in"] > 0 or stats["tokens_out"] > 0:
             tokens_str = f"Tokens: {format_tokens(stats['tokens_in'])}\u2191 {format_tokens(stats['tokens_out'])}\u2193"
         else:
@@ -363,7 +359,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
 
     stats_parts.append(f"Reports: {reports_completed}/{reports_total}")
 
-    # Elapsed time
+    # 已耗时间。
     if start_time:
         elapsed = time.time() - start_time
         elapsed_str = f"\u23f1 {int(elapsed // 60):02d}:{int(elapsed % 60):02d}"
@@ -377,11 +373,11 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
 
 
 def display_complete_report(final_state):
-    """Display the complete analysis report sequentially (avoids truncation)."""
+    """依次展示完整的分析报告，避免输出被截断。"""
     console.print()
     console.print(Rule("Complete Analysis Report", style="bold green"))
 
-    # I. Analyst Team Reports
+    # 一、分析师团队报告。
     analysts = []
     if final_state.get("market_report"):
         analysts.append(("Market Analyst", final_state["market_report"]))
@@ -396,7 +392,7 @@ def display_complete_report(final_state):
         for title, content in analysts:
             console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
 
-    # II. Research Team Reports
+    # 二、研究团队报告。
     if final_state.get("investment_debate_state"):
         debate = final_state["investment_debate_state"]
         research = []
@@ -411,12 +407,12 @@ def display_complete_report(final_state):
             for title, content in research:
                 console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
 
-    # III. Trading Team
+    # 三、交易团队。
     if final_state.get("trader_investment_plan"):
         console.print(Panel("[bold]III. Trading Team Plan[/bold]", border_style="yellow"))
         console.print(Panel(Markdown(final_state["trader_investment_plan"]), title="Trader", border_style="blue", padding=(1, 2)))
 
-    # IV. Risk Management Team
+    # 四、风险管理团队。
     if final_state.get("risk_debate_state"):
         risk = final_state["risk_debate_state"]
         risk_reports = []
@@ -431,20 +427,20 @@ def display_complete_report(final_state):
             for title, content in risk_reports:
                 console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
 
-    # V. Portfolio Manager Decision
+    # 五、投资组合经理的最终决策。
     if final_state.get("final_trade_decision"):
         console.print(Panel("[bold]V. Portfolio Manager Decision[/bold]", border_style="green"))
         console.print(Panel(Markdown(final_state["final_trade_decision"]), title="Portfolio Manager", border_style="blue", padding=(1, 2)))
 
 
 def update_research_team_status(status):
-    """Update status for research team members (not Trader)."""
+    """更新研究团队成员的状态，不包括 Trader。"""
     research_team = ["Bull Researcher", "Bear Researcher", "Research Manager"]
     for agent in research_team:
         message_buffer.update_agent_status(agent, status)
 
 
-# Ordered list of analysts for status transitions
+# 用于状态流转的分析师固定顺序列表。
 ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
 
 ANALYST_AGENT_NAMES = {
@@ -463,11 +459,10 @@ ANALYST_REPORT_MAP = {
 
 
 def update_analyst_statuses(message_buffer, chunk, wall_time_tracker=None):
-    """Update analyst statuses from the reports filed so far.
+    """根据目前提交的报告更新分析师状态。
 
-    The analysts run together: each is in progress until its own report lands.
-    When every selected analyst has filed, the research debate is in progress.
-    """
+    分析师并行执行：在提交自身报告之前均处于进行中。
+    所有选中的分析师提交报告后，研究辩论进入进行中状态。"""
     selected = message_buffer.selected_analysts
 
     if wall_time_tracker is not None:
@@ -481,11 +476,11 @@ def update_analyst_statuses(message_buffer, chunk, wall_time_tracker=None):
         agent_name = ANALYST_AGENT_NAMES[analyst_key]
         report_key = ANALYST_REPORT_MAP[analyst_key]
 
-        # Capture new report content from current chunk
+        # 提取当前流式数据块中的新增报告内容。
         if chunk.get(report_key):
             message_buffer.update_report_section(report_key, chunk[report_key])
 
-        # Status comes from accumulated sections, not just the current chunk.
+        # 状态应依据累计的报告章节，而不能只依赖当前数据块。
         if message_buffer.report_sections.get(report_key):
             message_buffer.update_agent_status(agent_name, "completed")
         else:
@@ -501,16 +496,14 @@ def update_analyst_statuses(message_buffer, chunk, wall_time_tracker=None):
 
 
 def extract_content_string(content):
-    """Extract string content from various message formats.
-    Returns None if no meaningful text content is found.
-    """
+    """从多种消息格式中提取字符串内容。
+    若没有有意义的文本内容，则返回 None。"""
     def is_empty(val):
-        """Whether a value carries nothing to show.
+        """判断某个值是否确实没有可显示的内容。
 
-        Text is judged by whether anything was written, not by what it would
-        mean as Python: a report saying "0" or "None" is a message the run
-        produced, and reading it as a falsy literal dropped it from the display.
-        """
+        判断文本时只看是否存在实际内容，而非是否等价于 Python 假值。
+        例如报告中的 "0" 或 "None" 也是模型真实输出，
+        不能因为将其视为假值而从界面中丢弃。"""
         if isinstance(val, str):
             return not val.strip()
         return val is None or not bool(val)
@@ -538,12 +531,11 @@ def extract_content_string(content):
 
 
 def classify_message_type(message) -> tuple[str, str | None]:
-    """Classify LangChain message into display type and extract content.
+    """识别 LangChain 消息的显示类型并提取内容。
 
-    Returns:
-        (type, content) - type is one of: User, Agent, Data, Control
-                        - content is extracted string or None
-    """
+    返回：
+        (type, content)：type 为 User、Agent、Data 或 Control；
+        content 为提取后的字符串，若无内容则为 None。"""
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
     content = extract_content_string(getattr(message, 'content', None))
@@ -559,12 +551,12 @@ def classify_message_type(message) -> tuple[str, str | None]:
     if isinstance(message, AIMessage):
         return ("Agent", content)
 
-    # Fallback for unknown types
+    # 未知消息类型的兜底处理。
     return ("System", content)
 
 
 def format_tool_args(args, max_length=80) -> str:
-    """Format tool arguments for terminal display."""
+    """格式化工具参数，供终端界面显示。"""
     result = str(args)
     if len(result) > max_length:
         return result[:max_length - 3] + "..."
@@ -614,7 +606,7 @@ def sync_analyst_tracker_from_chunk(
     chunk: dict[str, str],
     now: float | None = None,
 ) -> None:
-    """The analysts start together; each stops its clock when its report lands."""
+    """分析师同时开始执行，各自在提交报告时停止计时。"""
     current_time = monotonic() if now is None else now
     for spec in tracker.plan.specs:
         tracker.mark_started(spec.key, started_at=current_time)

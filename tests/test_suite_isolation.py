@@ -1,4 +1,4 @@
-"""The suite runs the same on any machine: no test reaches the network or the user's files."""
+"""测试套件必须在不同机器上保持一致，不依赖网络或用户真实文件。"""
 
 import socket
 
@@ -10,20 +10,19 @@ import pytest
     lambda: socket.create_connection(("192.0.2.1", 80), timeout=1),
     lambda: socket.socket().connect_ex(("192.0.2.1", 80)),
     lambda: socket.getaddrinfo("example.com", 443),
-    # yfinance's HTTP client is libcurl, which never touches Python's sockets.
+    # yfinance 使用 libcurl 发送 HTTP 请求，不经过 Python socket。
     lambda: __import__("curl_cffi.requests").requests.Session().get("http://192.0.2.1", timeout=1),
 ], ids=["connect", "connect_ex", "dns", "curl_cffi"])
 def test_a_test_cannot_reach_the_network(connect):
-    """A test that silently depends on a live vendor passes or fails with the
-    machine it runs on; conftest refuses the connection instead."""
+    """意外依赖真实数据源的测试可能随网络环境忽好忽坏；
+    因此 conftest 阻止此类联网。"""
     with pytest.raises(OSError, match="reach the network"):
         connect()
 
 
 @pytest.mark.unit
 def test_a_test_saves_cli_selections_to_its_own_directory(tmp_path):
-    """The CLI remembers the last run's selections in the user's home; a test
-    that runs the selection flow would otherwise overwrite them."""
+    """CLI 会把上次选择保存到用户主目录；测试选择流程不能覆盖真实偏好文件。"""
     from cli import prefs
 
     prefs.save_last_run({"analysts": ["market"]})
@@ -34,7 +33,7 @@ def test_a_test_saves_cli_selections_to_its_own_directory(tmp_path):
 
 @pytest.mark.unit
 def test_yfinance_keeps_its_cache_out_of_the_users_home():
-    """yfinance caches each symbol's time zone on disk, in the home directory by default."""
+    """yfinance 默认将标的时区缓存到用户主目录。"""
     from pathlib import Path
 
     from yfinance.cache import _TzDBManager
@@ -45,8 +44,8 @@ def test_yfinance_keeps_its_cache_out_of_the_users_home():
 @pytest.mark.unit
 @pytest.mark.parametrize("key", ["results_dir", "data_cache_dir", "memory_log_path"])
 def test_the_suite_keeps_its_files_out_of_the_users_home(key):
-    """A test that reads the user's cache sees what their runs fetched, and passes
-    or fails with it; one that writes there changes their data."""
+    """读取用户缓存会使测试结果取决于历史运行数据；
+    写入该目录甚至可能修改用户真实缓存。"""
     from pathlib import Path
 
     from tradingagents.default_config import DEFAULT_CONFIG

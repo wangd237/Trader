@@ -1,9 +1,4 @@
-"""Amazon Bedrock — first-class native client via the optional langchain-aws extra.
-
-Auth uses the AWS credential chain (no single key env); the model is a Bedrock
-model ID / inference profile ID; langchain-aws is imported lazily with a clear
-install hint when the [bedrock] extra is absent.
-"""
+"""Amazon Bedrock：通过可选 langchain-aws 依赖实现的原生客户端。"""
 import sys
 
 import pytest
@@ -22,7 +17,7 @@ def test_factory_routes_bedrock():
 @pytest.mark.unit
 def test_bedrock_any_model_and_no_key_env():
     assert validate_model("bedrock", "any.model-id:0") is True
-    # Bedrock uses the AWS credential chain, so there is no single key env.
+    # Bedrock 使用 AWS 凭证链，不依赖单一密钥环境变量。
     assert get_api_key_env("bedrock") is None
 
 
@@ -36,8 +31,7 @@ def test_helpful_error_when_langchain_aws_absent(monkeypatch):
 
 
 def _capture_kwargs(monkeypatch):
-    """Stub _bedrock_class so the constructor kwargs are testable without the
-    optional langchain-aws extra installed."""
+    """模拟 _bedrock_class，避免依赖真实 AWS SDK 就能测试构造参数。"""
     import tradingagents.llm_clients.bedrock_client as bc
     captured = {}
 
@@ -51,7 +45,7 @@ def _capture_kwargs(monkeypatch):
 
 @pytest.mark.unit
 def test_bearer_token_passed_as_api_key(monkeypatch):
-    # #1103: a Bedrock API key authenticates without AWS access keys.
+    # #1103：Bedrock API Key 无须 AWS Access Key 即可鉴权。
     captured = _capture_kwargs(monkeypatch)
     monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "bt-secret")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
@@ -62,7 +56,7 @@ def test_bearer_token_passed_as_api_key(monkeypatch):
 
 @pytest.mark.unit
 def test_no_bearer_token_omits_api_key(monkeypatch):
-    # Without a token, fall back to the AWS credential chain (no api_key kwarg).
+    # 没有 Bearer Token 时回退到 AWS 凭证链，不传 api_key 参数。
     captured = _capture_kwargs(monkeypatch)
     monkeypatch.delenv("AWS_BEARER_TOKEN_BEDROCK", raising=False)
     create_llm_client("bedrock", "us.anthropic.claude-opus-4-8-v1:0").get_llm()

@@ -1,9 +1,7 @@
-"""Configurable LLM SDK retry budget (#1090/#1091).
+"""可配置的 LLM SDK 重试预算（#1090/#1091）。
 
-A single transient 429 burst used to kill an otherwise-healthy multi-agent run
-because each provider SDK's max_retries (default 2) was not exposed. This adds an
-opt-in llm_max_retries knob forwarded to every provider chat client.
-"""
+临时 HTTP 429 限流可能使多 Agent 任务失败，而 SDK 默认只重试两次。
+新增可选 llm_max_retries 并传递给所有提供商客户端。"""
 from __future__ import annotations
 
 import pytest
@@ -11,7 +9,7 @@ import pytest
 import tradingagents.default_config as default_config_module
 from tradingagents.llm_clients.factory import _coerce_max_retries, build_llm_kwargs
 
-# --- coercion / validation -------------------------------------------------
+# --- 类型转换与校验 -------------------------------------------------
 
 
 @pytest.mark.unit
@@ -41,7 +39,7 @@ def test_coerce_rejects_non_integers(bad):
         _coerce_max_retries(bad)
 
 
-# --- forwarding into provider kwargs --------------------------------------
+# --- 提供商参数透传 --------------------------------------
 
 
 @pytest.mark.unit
@@ -59,7 +57,7 @@ def test_forwarded_across_providers(provider):
 
 @pytest.mark.unit
 def test_forwarded_env_string_is_coerced():
-    # env vars arrive as strings; the consumer coerces (like temperature)
+    # 环境变量最初是字符串，由下游像 temperature 一样进行类型转换。
     kwargs = build_llm_kwargs({"llm_provider": "openai", "llm_max_retries": "4"})
     assert kwargs["max_retries"] == 4
 
@@ -70,10 +68,10 @@ def test_invalid_config_value_fails_loudly():
         build_llm_kwargs({"llm_provider": "openai", "llm_max_retries": -1})
 
 
-# --- env overlay -----------------------------------------------------------
+# --- 环境变量覆盖 -----------------------------------------------------------
 
 def _config_with_env(monkeypatch, **overrides):
-    """The defaults as the environment given here would set them."""
+    """按当前测试环境变量构造默认配置。"""
     for key in list(default_config_module._ENV_OVERRIDES):
         monkeypatch.delenv(key, raising=False)
     for key, val in overrides.items():
@@ -90,6 +88,6 @@ def test_default_is_none(monkeypatch):
 @pytest.mark.unit
 def test_env_override_sets_config(monkeypatch):
     config = _config_with_env(monkeypatch, TRADINGAGENTS_LLM_MAX_RETRIES="8")
-    # None-default key: env value arrives as a string and is coerced downstream.
+    # 默认值为 None 的配置项也由下游将环境变量字符串转换为目标类型。
     assert config["llm_max_retries"] == "8"
     assert _coerce_max_retries(config["llm_max_retries"]) == 8

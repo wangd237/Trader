@@ -1,21 +1,21 @@
-"""Shared model catalog for CLI selections and validation."""
+"""CLI 模型选择与合法性校验共用的模型目录。"""
 
 from __future__ import annotations
 
 ModelOption = tuple[str, str]
 ProviderModeOptions = dict[str, dict[str, list[ModelOption]]]
 
-# Providers that serve many / frequently-changing models: offer only "Custom
-# model ID" rather than a list that goes stale.
+# 对模型数量多且变化频繁的提供商，仅显示“自定义模型 ID”，
+# 避免维护很快过时的固定列表。
 _CUSTOM_ONLY: dict[str, list[ModelOption]] = {
     "quick": [("Custom model ID", "custom")],
     "deep": [("Custom model ID", "custom")],
 }
 
 
-# Shared model list for GLM via Z.AI (international) and BigModel (China).
-# Source: docs.z.ai (GLM Coding Plan supported models + LLM guides).
-# All GLM 4.7+ entries support thinking mode via thinking={"type":"enabled"}.
+# Z.AI（国际）与 BigModel（中国）的 GLM 共用模型列表。
+# 来源：docs.z.ai 的 GLM Coding Plan 和 LLM 文档。
+# GLM 4.7 及更新版本可通过 thinking={"type":"enabled"} 启用思考模式。
 _GLM_MODELS: dict[str, list[ModelOption]] = {
     "quick": [
         ("GLM-5.3-Flash - Fast, cost-efficient, 1M ctx", "glm-5.3-flash"),
@@ -33,16 +33,13 @@ _GLM_MODELS: dict[str, list[ModelOption]] = {
 }
 
 
-# Shared model list for Qwen's global (dashscope-intl) and CN (dashscope) endpoints.
-# Source: modelstudio.console.alibabacloud.com (Featured Models — Flagship + Cost-optimized).
+# Qwen 国际（dashscope-intl）与中国（dashscope）端点的共用模型列表。
+# 来源：阿里云百炼 Model Studio 的旗舰模型及性价比模型列表。
 #
-# Only versioned IDs are exposed in the dropdown. The version-less aliases
-# (qwen-plus, qwen-flash) are documented by Alibaba as auto-upgrading
-# pointers ("backbone, latest, and snapshot ... have been upgraded to the
-# Qwen3 series"), which means their behavior shifts when Alibaba rotates
-# the backing model. Users who want a specific generation pick it
-# explicitly; users who really want auto-latest can enter the alias via
-# "Custom model ID".
+# 下拉菜单只展示明确版本的模型 ID。没有版本号的 qwen-plus、qwen-flash
+# 等别名会自动升级，阿里云可能随时替换其底层模型，导致行为变化。
+# 希望固定模型代际的用户应选择带版本号的 ID；
+# 希望自动跟随最新版的用户可输入“自定义模型 ID”。
 _QWEN_MODELS: dict[str, list[ModelOption]] = {
     "quick": [
         ("Qwen 3.8 Flash - Latest fast model, 1M ctx", "qwen3.8-flash"),
@@ -56,12 +53,13 @@ _QWEN_MODELS: dict[str, list[ModelOption]] = {
 }
 
 
-# Shared model list for MiniMax's global and CN endpoints (same IDs).
-# Full official lineup per platform.minimax.io/docs/api-reference/text-openai-api.
-# M3 carries a 1M-token context window; the M2.x line is 204,800 tokens.
-# Kimi (Moonshot). Source: platform.kimi.ai/docs/models. "Custom model ID" stays
-# available for models newer than this list. The k2.7-code variants are omitted:
-# they are coding specialists, not analysis models.
+# MiniMax 国际与中国端点使用相同模型 ID。
+# 完整列表来源：platform.minimax.io/docs/api-reference/text-openai-api。
+# M3 上下文窗口为 100 万 token，M2.x 系列为 204,800 token。
+#
+# Kimi（Moonshot）模型参考 platform.kimi.ai/docs/models；
+# “自定义模型 ID”可用于列表尚未收录的新模型。
+# k2.7-code 等代码专用模型不纳入分析模型推荐列表。
 _KIMI_MODELS: dict[str, list[ModelOption]] = {
     "quick": [
         ("Kimi K2.6 - 256K ctx, thinking modes, agent tasks", "kimi-k2.6"),
@@ -149,10 +147,9 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
-    # DeepSeek: the deepseek-chat / deepseek-reasoner aliases are deprecated
-    # (2026-07-24) and now map to V4 Flash; expose the V4 IDs directly. V4 Flash
-    # serves both non-thinking and thinking modes (the DeepSeekChatOpenAI client
-    # handles the reasoning_content round-trip).
+    # DeepSeek 的 deepseek-chat、deepseek-reasoner 别名已弃用
+    # （2026-07-24），当前映射到 V4 Flash，因此直接展示 V4 ID。
+    # V4 Flash 同时支持非思考与思考模式；客户端负责回传 reasoning_content。
     "deepseek": {
         "quick": [
             ("DeepSeek Flash - V4.1 Flash, fast, 1M ctx", "deepseek-flash"),
@@ -164,27 +161,24 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
-    # Qwen: same model IDs across global (dashscope-intl) and China
-    # (dashscope) endpoints, so the two provider keys share one model list.
+    # Qwen 国际与中国端点使用相同模型 ID，两个提供商配置共用列表。
     "qwen": _QWEN_MODELS,
     "qwen-cn": _QWEN_MODELS,
-    # GLM: Z.AI (international) and BigModel (China) host the same model
-    # IDs; the two provider keys share one model list.
+    # Z.AI 国际端点和 BigModel 中国端点提供相同模型 ID，
+    # 两个提供商配置共用列表。
     "glm": _GLM_MODELS,
     "glm-cn": _GLM_MODELS,
-    # MiniMax: same model IDs across global (.io) and China (.com) regions,
-    # so the two provider keys share one model list.
+    # MiniMax 国际（.io）与中国（.com）端点使用相同模型 ID，
+    # 因此两个提供商配置共用列表。
     "kimi": _KIMI_MODELS,
     "minimax": _MINIMAX_MODELS,
     "minimax-cn": _MINIMAX_MODELS,
-    # OpenRouter: fetched dynamically. Azure: any deployed model name.
-    # Ollama display labels intentionally omit a "local" marker — the
-    # endpoint is now configurable via OLLAMA_BASE_URL, so the same labels
-    # apply whether the user runs ollama-serve on localhost or against a
-    # remote host. The actual resolved endpoint is surfaced separately by
-    # cli.prompts.confirm_ollama_endpoint() right after provider selection.
-    # "Custom model ID" lets users pick any model they have pulled via
-    # `ollama pull` beyond the three suggested defaults.
+    # OpenRouter 模型列表动态获取；Azure 接受任意已部署模型名。
+    # Ollama 模型标签不再强调“本地”，因为端点可通过 OLLAMA_BASE_URL
+    # 配置，既可以连接 localhost 也能连接远程服务。
+    # 实际端点在提供商选择后由 cli.prompts.confirm_ollama_endpoint()
+    # 单独提示。用户还可以输入“自定义模型 ID”，使用通过
+    # `ollama pull` 安装的其他模型。
     "ollama": {
         "quick": [
             ("Qwen3:latest (8B)", "qwen3:latest"),
@@ -199,13 +193,12 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
-    # Generic OpenAI-compatible endpoint: the model is whatever the user's
-    # server serves, so only "Custom model ID" is offered.
+    # 通用 OpenAI 兼容端点由用户自己的服务器决定支持的模型，
+    # 因此只提供“自定义模型 ID”选项。
     "openai_compatible": _CUSTOM_ONLY,
-    # Hosted OpenAI-compatible providers that serve many (and frequently
-    # changing) models — offer "Custom model ID" rather than a list that goes
-    # stale. The endpoint + key are wired by the provider; the user picks the
-    # model their account has access to.
+    # 对大量托管的 OpenAI 兼容模型提供商，仅提供“自定义模型 ID”，
+    # 避免模型频繁更新导致列表过时。端点和密钥由提供商适配层配置，
+    # 用户输入自身账户有权限访问的模型。
     "mistral": {
         "quick": [
             ("Mistral Small 4 - Fast, 262K ctx", "mistral-small-2603"),
@@ -219,21 +212,21 @@ MODEL_OPTIONS: ProviderModeOptions = {
     },
     "groq": _CUSTOM_ONLY,
     "nvidia": _CUSTOM_ONLY,
-    # Bedrock model IDs / cross-region inference profile IDs are user-specified.
+    # Bedrock 模型 ID 和跨地区推理配置 ID 由用户指定。
     "bedrock": _CUSTOM_ONLY,
-    # The plan's models are listed live from OpenAI once signed in.
+    # 完成登录后从 OpenAI 实时读取订阅可用的模型列表。
     "chatgpt": _CUSTOM_ONLY,
 }
 
 
 def get_model_options(provider: str, mode: str) -> list[ModelOption]:
-    """Return shared model options for a provider and selection mode."""
+    """返回指定提供商与选择模式的共享模型选项。"""
     return MODEL_OPTIONS[provider.lower()][mode]
 
 
-# Served by the provider but not offered in the picker: models retired from the
-# menu, and the explicit ID of a model listed under a shorter name. Known to
-# validation so a config naming one runs without an unknown-model warning.
+# 有些模型仍由提供商提供，但不会出现在菜单中，
+# 例如已从菜单移除的旧模型，或在界面上显示了更短名称的正式 ID。
+# 校验仍需识别这些模型，以免已有配置产生未知模型警告。
 LEGACY_MODELS: dict[str, list[str]] = {
     "openai": ["gpt-5.4", "gpt-5.4-mini", "gpt-5.6-sol"],
     "xai": ["grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning",
@@ -245,7 +238,7 @@ LEGACY_MODELS: dict[str, list[str]] = {
 
 
 def get_known_models() -> dict[str, list[str]]:
-    """Build known model names from the shared CLI catalog plus legacy IDs."""
+    """合并 CLI 共用目录与历史模型 ID，生成已知模型名称集合。"""
     return {
         provider: sorted(
             {

@@ -1,24 +1,22 @@
-"""Reflection: a settled decision's outcome turned into a short lesson for later runs."""
+"""反思模块：将已结算决策的真实结果转化为后续运行可使用的简短经验。"""
 
 from typing import Any
 
 
 class Reflector:
-    """Handles reflection on trading decisions."""
+    """负责对交易决策进行反思。"""
 
     def __init__(self, quick_thinking_llm: Any):
-        """Initialize the reflector with an LLM."""
+        """通过 LLM 初始化反思器。"""
         self.quick_thinking_llm = quick_thinking_llm
 
     def _system_prompt(self, holding_days: int) -> str:
-        """Concise prompt for reflect_on_final_decision (settled memory log entries).
+        """为已结算的记忆日志条目构造 reflect_on_final_decision 的简洁提示词。
 
-        Produces 2-4 sentences of plain prose, compact enough to be re-injected
-        into future agent prompts without bloating the context window. The
-        window is named because it bounds what the outcome can show: a thesis
-        written for months is not disproved by a week, and a lesson that ignores
-        the difference is read by later runs as an established failure.
-        """
+        生成 2～4 句简短文字，便于注入后续 Agent Prompt，
+        而不会显著增大上下文。提示词明确观察窗口的长度，
+        因为一周表现不能证伪一个按数月设计的策略；
+        若忽略观察期差异，后续运行会将尚不充分的证据误读成确定失败。"""
         return (
             "You are a trading analyst reviewing your own past decision now that the outcome is known.\n"
             f"The outcome covers {holding_days} trading days from the first close after the analysis date, "
@@ -41,14 +39,12 @@ class Reflector:
         benchmark_name: str = "SPY",
         holding_days: int = 5,
     ) -> str:
-        """Single reflection call on the final trade decision with outcome context.
+        """结合真实结果，对最终交易决策进行一次 LLM 反思。
 
-        Used when a pending decision is settled. The final_trade_decision already
-        synthesises all analyst insights, so no separate market context is needed.
-        ``benchmark_name`` is the label used for the alpha line (e.g. ``"SPY"``
-        for US tickers, ``"^N225"`` for ``.T`` listings); defaults to SPY for
-        callers that haven't been updated to thread the benchmark through.
-        """
+        待结算决策完成结算时调用。最终交易决策已经汇总各分析师见解，
+        因此无需额外提供市场上下文。``benchmark_name`` 是 Alpha 基准名称，
+        美股如 ``"SPY"``，日股（``.T``）如 ``"^N225"``；
+        尚未传入该参数的旧调用者默认使用 SPY。"""
         messages = [
             ("system", self._system_prompt(holding_days)),
             (

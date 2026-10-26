@@ -10,7 +10,7 @@ from tradingagents.agents.tools import (
     get_insider_transactions,
 )
 
-# The tools this analyst is offered; its tool node is built from the same tuple.
+# 分析师可调用的工具清单；工具节点也由同一元组构建。
 TOOLS = (
     get_fundamentals,
     get_balance_sheet,

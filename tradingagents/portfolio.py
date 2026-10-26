@@ -1,15 +1,12 @@
-"""The caller's book, as the decision agents see it.
+"""决策 Agent 所看到的调用者持仓信息。
 
-Optional input to a run: what is held, at what average price, and how much cash
-is free. Without it the agents cannot tell adding to a full position from
-opening a new one. Three states are distinct and must stay so: a position, a
-flat book, and no context at all, since treating "not provided" as "flat" would
-invent a fact about the caller's account.
+这是一次运行的可选输入，描述当前持仓、平均持仓价和可用现金。
+缺少这些信息时，Agent 无法区分加仓现有满仓头寸和新开仓。
+必须区分三种情况：有持仓、明确空仓、完全未提供持仓信息；
+不能将“未提供”当作“空仓”，否则会虚构账户事实。
 
-Broker-neutral by construction: quantities are generic units and the currency is
-whatever label the caller passes, so nothing here implies a venue or an
-execution path.
-"""
+这里与券商无关：数量只是通用单位，币种由调用者标记，
+不表示具体交易场所或下单执行路径。"""
 
 from __future__ import annotations
 
@@ -35,7 +32,7 @@ class PortfolioContext(BaseModel):
         return next((p for p in self.positions if p.ticker.upper() == ticker.strip().upper()), None)
 
     def render(self, ticker: str) -> str:
-        """The portfolio block for the decision agents, led by the analyzed instrument."""
+        """生成供决策 Agent 使用的持仓上下文，并将当前分析标的放在最前面。"""
         symbol = ticker.strip().upper()
         held = self.position_in(symbol)
         if held is None:
@@ -51,12 +48,12 @@ class PortfolioContext(BaseModel):
         return "Portfolio at the analysis date:\n" + "\n".join(lines)
 
     def fingerprint(self) -> str:
-        """Stable digest of the book, so a changed one cannot resume a stale run."""
+        """计算持仓的稳定摘要，使持仓变化后不会错误恢复旧运行。"""
         return hashlib.sha256(self.model_dump_json().encode()).hexdigest()[:12]
 
 
 def load_portfolio(path: str | Path) -> PortfolioContext:
-    """Read a portfolio JSON file, failing before the run rather than mid-graph."""
+    """读取持仓 JSON 文件；若失败则在运行前报错，而不是执行中途才失败。"""
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         return PortfolioContext.model_validate(data)

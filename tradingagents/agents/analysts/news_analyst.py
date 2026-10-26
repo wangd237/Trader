@@ -9,7 +9,7 @@ from tradingagents.agents.tools import (
     get_prediction_markets,
 )
 
-# The tools this analyst is offered; its tool node is built from the same tuple.
+# 分析师可调用的工具清单；工具节点也由同一元组构建。
 TOOLS = (
     get_news,
     get_global_news,

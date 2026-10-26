@@ -1,13 +1,9 @@
-"""Canonical provider -> API-key env-var mapping.
+"""提供商与 API Key 环境变量的统一映射。
 
-A single source of truth for which environment variable holds the API
-key for each supported LLM provider. Used by the CLI's interactive key
-prompt (cli/prompts.ensure_api_key) and by anything else that needs to
-ask "does this provider require a key, and which env var is it?".
-
-When adding a new provider, register its env var here so the CLI flow
-prompts for it automatically instead of failing on first API call.
-"""
+集中定义各 LLM 提供商使用的密钥环境变量名，供 CLI 交互式密钥输入
+（cli/prompts.ensure_api_key）以及其他鉴权检查使用。
+新增提供商时只需在这里登记，CLI 就能在调用 API 前自动提示输入，
+而不是等首次请求失败。"""
 
 from __future__ import annotations
 
@@ -16,12 +12,12 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "anthropic":  "ANTHROPIC_API_KEY",
     "google":     "GOOGLE_API_KEY",
     "azure":      "AZURE_OPENAI_API_KEY",
-    # Bedrock authenticates via the AWS credential chain, not a single key env.
+    # Bedrock 使用 AWS 凭证链鉴权，而不是单个密钥环境变量。
     "bedrock":    None,
     "xai":        "XAI_API_KEY",
     "deepseek":   "DEEPSEEK_API_KEY",
-    # Dual-region providers each carry their own account; keys are not
-    # interchangeable between the international and China endpoints.
+    # 双地区提供商分别使用自己的账户，国际端点与中国端点
+    # 的密钥不能互换。
     "qwen":       "DASHSCOPE_API_KEY",
     "qwen-cn":    "DASHSCOPE_CN_API_KEY",
     "glm":        "ZHIPU_API_KEY",
@@ -29,27 +25,26 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "minimax":    "MINIMAX_API_KEY",
     "minimax-cn": "MINIMAX_CN_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
-    # Additional hosted OpenAI-compatible providers (model is user-specified).
-    # kimi -> Moonshot AI; nvidia -> NVIDIA NIM.
+    # 其他托管的 OpenAI 兼容提供商，模型由用户指定。
+    # kimi 对应 Moonshot AI，nvidia 对应 NVIDIA NIM。
     "mistral":    "MISTRAL_API_KEY",
     "kimi":       "MOONSHOT_API_KEY",
     "groq":       "GROQ_API_KEY",
     "nvidia":     "NVIDIA_API_KEY",
-    # A ChatGPT plan authenticates with the person's sign-in, not a key.
+    # ChatGPT 订阅通过用户登录鉴权，而不是 API Key。
     "chatgpt":    None,
-    # Local runtimes do not authenticate.
+    # 本地运行时不需要鉴权。
     "ollama":     None,
-    # Generic OpenAI-compatible endpoint: the client reads this when set (keyed
-    # relays), but it is marked key-optional in the provider registry so the CLI
-    # never forces a prompt and keyless local servers still work.
+    # 通用 OpenAI 兼容端点可在设置了密钥时使用它（例如带认证的中继），
+    # 但提供商注册表中标记为可选，因此 CLI 不会强制提问，
+    # 无密钥的本地服务仍可使用。
     "openai_compatible": "OPENAI_COMPATIBLE_API_KEY",
 }
 
 
 def get_api_key_env(provider: str) -> str | None:
-    """Return the env var name for `provider`'s API key, or None if not applicable.
+    """返回指定 `provider` 对应的 API Key 环境变量名；不适用时返回 None。
 
-    Unknown providers also return None — callers should treat that as
-    "no key check possible" rather than as "no key required".
-    """
+    未知提供商也返回 None，调用者应理解为“无法检查密钥”，
+    而不是“无需密钥”。"""
     return PROVIDER_API_KEY_ENV.get(provider.lower())

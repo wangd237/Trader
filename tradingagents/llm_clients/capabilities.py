@@ -1,16 +1,10 @@
-"""Declarative per-model capability table for OpenAI-compatible providers.
+"""面向 OpenAI 兼容提供商的声明式模型能力表。
 
-This is the single place that knows which model IDs reject which API
-parameters or require which structured-output method. The LLM client
-subclasses consult ``get_capabilities(model_name)`` instead of hardcoding
-model-name ``if`` ladders, so adding a new model (or a new provider quirk)
-means editing this table — not the client code.
-
-Pattern adapted from the per-model ``compat:`` flags DeepSeek themselves
-publish in their integration guides (e.g. the Oh My Pi config schema
-documents ``supportsToolChoice``, ``requiresReasoningContentForToolCalls``
-as declarative per-model fields).
-"""
+统一描述不同模型会拒绝哪些 API 参数，以及需要哪种结构化输出方式。
+客户端通过 ``get_capabilities(model_name)`` 查表，
+避免到处写模型名称分支。新增模型或兼容性特例只需修改本表，
+不需要改客户端逻辑。
+该设计参考 DeepSeek 集成文档中按模型声明兼容标记的方式。"""
 
 from __future__ import annotations
 
@@ -28,29 +22,25 @@ StructuredMethod = Literal[
 
 @dataclass(frozen=True)
 class ModelCapabilities:
-    """What an OpenAI-compatible model accepts at the API level."""
+    """描述 OpenAI 兼容模型在 API 层能够接受的参数与功能。"""
 
     supports_tool_choice: bool
     supports_json_mode: bool
     supports_json_schema: bool
     preferred_structured_method: StructuredMethod
-    # DeepSeek thinking-mode models 400 if reasoning_content from prior
-    # assistant turns is not echoed back on the next request.
+    # DeepSeek 思考模式要求在后续请求中回传上一轮 assistant 的
+    # reasoning_content，否则可能返回 HTTP 400。
     requires_reasoning_content_roundtrip: bool = False
-    # MiniMax M2.x reasoning models need ``reasoning_split=True`` so the
-    # <think> block lands in ``reasoning_details`` instead of polluting
-    # ``content``. The flag is rejected by non-reasoning MiniMax models
-    # (Coding Plan, MiniMax-Text-01, etc.), so we only set it where the
-    # model actually consumes it. (#826)
+    # MiniMax M2.x 推理模型需要 ``reasoning_split=True``，
+    # 将 <think> 内容放入 ``reasoning_details``，避免污染 ``content``。
+    # 非推理 MiniMax 模型不接受该参数，因此仅对确实使用它的模型启用（#826）。
     requires_reasoning_split: bool = False
 
 
-# DeepSeek's thinking models accept the ``tools`` array but reject the
-# ``tool_choice`` parameter (official Oh My Pi integration guide and the
-# 400 response in issue #678). Their official tool-calling examples
-# (api-docs.deepseek.com/guides/tool_calls) pass ``tools=[...]`` without
-# ``tool_choice`` — we mirror that pattern by setting supports_tool_choice
-# to False and letting the client suppress the kwarg.
+# DeepSeek 思考模型接受 ``tools`` 列表，但拒绝 ``tool_choice`` 参数
+# （官方集成说明及 #678 的 400 错误）。
+# 官方工具调用示例只传 ``tools=[...]``；因此将
+# supports_tool_choice 设置为 False，让客户端自动去掉该参数。
 _DEEPSEEK_THINKING = ModelCapabilities(
     supports_tool_choice=False,
     supports_json_mode=True,
@@ -66,14 +56,12 @@ _DEEPSEEK_CHAT = ModelCapabilities(
     preferred_structured_method="function_calling",
 )
 
-# MiniMax M2.x reasoning models accept the tools array, but their
-# tool_choice parameter is restricted to the enum {"none", "auto"}
-# (platform.minimax.io/docs/api-reference/text-post). Langchain's
-# function_calling path sends tool_choice as a function-spec dict, which
-# MiniMax 400s — same shape as the DeepSeek bug. supports_tool_choice=False
-# makes the dispatch in NormalizedChatOpenAI suppress the kwarg; the schema
-# still ships as a tool. json_mode response_format is only for
-# MiniMax-Text-01, not M2.x.
+# MiniMax M2.x 模型接受 tools 列表，但 tool_choice 仅可设置
+# "none" 或 "auto"。LangChain 的 function_calling 会传函数描述字典，
+# 导致 HTTP 400，问题与 DeepSeek 类似。
+# 因此 supports_tool_choice=False 禁止发送该参数，
+# 但仍将 Schema 作为工具发送。json_mode 的 response_format
+# 只适用于 MiniMax-Text-01，不适用于 M2.x。
 _MINIMAX_THINKING = ModelCapabilities(
     supports_tool_choice=False,
     supports_json_mode=False,
@@ -90,15 +78,14 @@ _DEFAULT = ModelCapabilities(
 )
 
 
-# Exact-ID matches take precedence over pattern matches.
+# 精确 ID 匹配优先于模式匹配。
 _BY_ID: dict[str, ModelCapabilities] = {
     "deepseek-chat": _DEEPSEEK_CHAT,
     "deepseek-reasoner": _DEEPSEEK_THINKING,
     "deepseek-flash": _DEEPSEEK_THINKING,
     "deepseek-v4-flash": _DEEPSEEK_THINKING,
     "deepseek-v4-pro": _DEEPSEEK_THINKING,
-    # MiniMax — full official model lineup per
-    # platform.minimax.io/docs/api-reference/text-openai-api
+    # MiniMax 官方模型列表，来源：platform.minimax.io/docs/api-reference/text-openai-api。
     "MiniMax-M2.7": _MINIMAX_THINKING,
     "MiniMax-M2.7-highspeed": _MINIMAX_THINKING,
     "MiniMax-M2.5": _MINIMAX_THINKING,
@@ -108,11 +95,10 @@ _BY_ID: dict[str, ModelCapabilities] = {
     "MiniMax-M2": _MINIMAX_THINKING,
 }
 
-# Forward-compat patterns. New ``deepseek-v5-*`` / ``deepseek-reasoner-*``
-# / ``deepseek-flash-*`` or ``MiniMax-M3*`` variants inherit the thinking-mode
-# quirks automatically. ``deepseek-flash`` is the unversioned alias the model
-# picker offers for V4.1 Flash; it serves thinking mode and so rejects
-# ``tool_choice`` exactly like the versioned ``deepseek-v4-flash`` ID does.
+# 为将来版本设置兼容性匹配模式。新的 ``deepseek-v5-*``、
+# ``deepseek-reasoner-*``、``deepseek-flash-*`` 和 ``MiniMax-M3*``
+# 将自动继承对应的推理模型限制。``deepseek-flash`` 是模型列表中
+# V4.1 Flash 的无版本别名，同样需要禁用 ``tool_choice``。
 _BY_PATTERN: list[tuple[re.Pattern[str], ModelCapabilities]] = [
     (re.compile(r"^deepseek-v\d"), _DEEPSEEK_THINKING),
     (re.compile(r"^deepseek-reasoner"), _DEEPSEEK_THINKING),
@@ -122,13 +108,13 @@ _BY_PATTERN: list[tuple[re.Pattern[str], ModelCapabilities]] = [
 
 
 def get_capabilities(model_name: str) -> ModelCapabilities:
-    """Resolve capabilities by exact ID, then pattern, then default."""
-    # OpenRouter namespaces official DeepSeek models as ``deepseek/<id>``, so
-    # strip that prefix to reuse the same quirks as the native provider — e.g.
-    # ``deepseek/deepseek-v4-flash`` must suppress tool_choice like
-    # ``deepseek-v4-flash`` does, not fall through to _DEFAULT (#1199). Only the
-    # official namespace is stripped; third-party finetunes on other publishers
-    # (e.g. ``tngtech/deepseek-...``) keep _DEFAULT, since their quirks are unknown.
+    """按精确模型 ID、模式匹配、默认值的优先级查询能力。"""
+    # OpenRouter 将官方 DeepSeek 模型写成 ``deepseek/<id>``；
+    # 去掉此命名空间前缀后，可复用原生 DeepSeek 的兼容规则。
+    # 例如 ``deepseek/deepseek-v4-flash`` 必须像原生模型一样禁用
+    # ``tool_choice``，而非错误落到默认配置（#1199）。
+    # 只对官方命名空间做此处理；其他发布者微调版本的行为未知，
+    # 因此继续采用默认能力配置。
     if model_name.startswith("deepseek/"):
         model_name = model_name.removeprefix("deepseek/")
 

@@ -1,4 +1,4 @@
-"""Tests for the ticker path-component validator that blocks directory traversal."""
+"""测试防止目录遍历的 ticker 路径组件校验器。"""
 
 import os
 import unittest
@@ -15,7 +15,7 @@ class TestSafeTickerComponent(unittest.TestCase):
             self.assertEqual(safe_ticker_component(ticker), ticker)
 
     def test_accepts_futures_and_forex_formats(self):
-        # Futures use '=' (GC=F gold, CL=F crude), forex/CFD symbols use '+'.
+        # 期货符号使用 =（例如黄金 GC=F、原油 CL=F），外汇和 CFD 代码可能包含 +。
         for ticker in ("GC=F", "CL=F", "ES=F", "XAUUSD+", "EURUSD+"):
             self.assertEqual(safe_ticker_component(ticker), ticker)
 
@@ -39,14 +39,14 @@ class TestSafeTickerComponent(unittest.TestCase):
             safe_ticker_component("A" * 33)
 
     def test_rejects_dot_only_values(self):
-        # '.' and '..' pass the regex but traverse when used as a path
-        # component (e.g. ``Path(results_dir) / ticker / "logs"``).
+        # '.'、'..' 虽可通过字符正则检查，作为路径组件时仍可能指向其他目录，
+        # 例如 ``Path(results_dir) / ticker / "logs"``。
         for bad in (".", "..", "...", "...."):
             with self.assertRaises(ValueError):
                 safe_ticker_component(bad)
 
     def test_traversal_string_does_not_escape_join(self):
-        """Sanity: sanitized values stay within base when joined."""
+        """基本校验：安全的 ticker 拼接后仍位于指定根目录内部。"""
         base = os.path.realpath("/tmp/cache")
         ticker = safe_ticker_component("AAPL")
         joined = os.path.realpath(os.path.join(base, f"{ticker}.csv"))

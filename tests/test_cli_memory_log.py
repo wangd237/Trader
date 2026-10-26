@@ -1,11 +1,9 @@
-"""The CLI must use the memory log the same way propagate() does.
+"""CLI 应与 propagate() 共用相同的 Memory Log 流程。
 
-The CLI streams the graph itself instead of calling propagate(), so memory steps
-that lived only in propagate() never ran on the primary entry point: pending
-decisions were not settled, the Portfolio Manager got no past context, and the
-finished decision was not recorded. Both paths now build their initial state and
-record their decision through the same graph methods.
-"""
+CLI 曾直接流式运行 Graph，没有执行仅在 propagate() 中的步骤：
+未结算待处理决策、没有给 Portfolio Manager 注入历史经验，
+也没有记录最终决策。现在两者使用相同的 Graph 方法
+构造初始状态并记录决策。"""
 
 from __future__ import annotations
 
@@ -17,7 +15,7 @@ from tradingagents.memory import TradingMemoryLog
 
 
 def _bare_graph(tmp_path):
-    """A graph without __init__ (no LLM clients), wired to a temp log."""
+    """绕过 __init__ 构造 Graph，不启动 LLM 客户端，连接临时日志。"""
     graph = object.__new__(TradingAgentsGraph)
     graph.config = {"memory_log_path": str(tmp_path / "trading_memory.md")}
     graph.memory_log = TradingMemoryLog(graph.config)
@@ -40,10 +38,10 @@ def test_record_decision_skips_a_run_without_a_decision(tmp_path):
     assert graph.memory_log.load_entries() == []
 
 
-# --- the CLI path ----------------------------------------------------------------
+# --- CLI 运行流程 ----------------------------------------------------------------
 
 class _FakeGraph:
-    """Records the lifecycle calls run_analysis makes."""
+    """记录 run_analysis 触发的生命周期方法。"""
 
     def __init__(self, resuming=None):
         self.calls = []
@@ -117,7 +115,7 @@ class _FakeBuffer:
 
 
 def _run_cli(monkeypatch, tmp_path, fake):
-    """Drive run_analysis against ``fake``; returns the message buffer."""
+    """使用 ``fake`` 执行 run_analysis，并返回消息缓冲区。"""
     import cli.main as m
     from cli.models import AnalystType
 
@@ -146,8 +144,8 @@ def test_cli_run_uses_the_memory_log_like_propagate(tmp_path, monkeypatch):
 
     assert fake.calls == [
         ("create_run_state", "NVDA", "2026-01-10"),
-        # The decision is recorded from the merged stream, before the checkpoint
-        # is cleared, matching propagate().
+        # 从合并后的状态流中记录最终决策，且必须在清除检查点之前完成；
+        # 这与 propagate() 的行为相同。
         ("record_decision", "NVDA", "2026-01-10", "Rating: Buy\n\nBuy NVDA."),
         ("clear_checkpoint",),
     ]
@@ -156,7 +154,7 @@ def test_cli_run_uses_the_memory_log_like_propagate(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.parametrize("resuming, said", [(True, "resuming"), (False, "starting fresh")])
 def test_the_cli_run_says_whether_it_resumed(tmp_path, monkeypatch, resuming, said):
-    """The README promises the run view tells a resumed run from a fresh one."""
+    """README 要求运行界面明确区分恢复执行和全新启动。"""
     buffer = _run_cli(monkeypatch, tmp_path, _FakeGraph(resuming=resuming))
 
     assert any(said in text.lower() for _, kind, text in buffer.messages if kind == "System")
@@ -171,7 +169,7 @@ def test_a_run_without_checkpointing_says_nothing_about_resuming(tmp_path, monke
 
 @pytest.mark.unit
 def test_recording_a_run_writes_its_state_log(tmp_path):
-    """The CLI records a run through record_decision, so the state log is written there."""
+    """CLI 通过 record_decision 保存决策，因此状态日志在这里写入。"""
     graph = object.__new__(TradingAgentsGraph)
     graph.config = {"results_dir": str(tmp_path), "llm_provider": "openai", "deep_think_llm": "d",
                     "quick_think_llm": "q", "max_debate_rounds": 1, "max_risk_discuss_rounds": 1,

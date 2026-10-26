@@ -1,8 +1,7 @@
-"""Only the data layer imports vendor libraries.
+"""只有数据层可以直接导入数据提供商 SDK。
 
-Vendor calls belong in dataflows, where failures are raised as VendorError
-subclasses; a call made elsewhere can report an outage as a fact about the market.
-"""
+供应商请求应集中在 dataflows 中，并使用 VendorError 子类处理错误；
+如果其他层自行请求，就可能把提供商故障误认为市场事实。"""
 
 import ast
 from pathlib import Path

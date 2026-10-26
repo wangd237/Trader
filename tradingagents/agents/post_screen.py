@@ -1,16 +1,13 @@
-"""Social-post screening with TypeSafe's Jev, when ``TYPESAFE_API_KEY`` is set.
+"""在设置 ``TYPESAFE_API_KEY`` 时，使用 TypeSafe 的 Jev 筛选社交帖子。
 
-Jev answers typed questions with calibrated probabilities. Each StockTwits or
-Reddit post is asked two: is it about the instrument, and which way does it
-lean on the instrument's stock. Code turns the answers into what the Sentiment
-Analyst reads: posts that are clearly about something else are dropped, and a
-stance count over the rest heads the source's block.
+Jev 为类型化问题返回经过校准的概率。每条 StockTwits 或 Reddit
+帖子会被询问两个问题：是否与目标标的有关，以及对该股票偏多还是偏空。
+明确无关的帖子被过滤，其余帖子按立场聚合后提供给情绪分析师。
 
-Configured by TypeSafe's own SDK variables, ``TYPESAFE_API_KEY``,
-``TYPESAFE_DEFAULT_MODEL`` and ``TYPESAFE_BASE_URL`` (OpenRouter serves Jev at
-``https://openrouter.ai/api``). Without a key nothing here runs; if any request fails, the source's posts are kept unscreened and the
-block says screening was unavailable.
-"""
+使用 TypeSafe SDK 的 ``TYPESAFE_API_KEY``、``TYPESAFE_DEFAULT_MODEL``
+和 ``TYPESAFE_BASE_URL`` 配置（OpenRouter 的 Jev 接口位于
+``https://openrouter.ai/api``）。没有密钥时不执行筛选；
+若请求失败，保留未筛选帖子，并说明筛选服务不可用。"""
 
 import logging
 import os
@@ -33,9 +30,9 @@ _MAX_WAIT = 30.0
 _TIMEOUT = 15.0
 _WORKERS = 16                   # well inside the documented 1,200 requests per minute
 
-# A post is dropped only on a clear "not about it"; the uncertain middle stays.
+# 只有明确判定与目标无关时才丢弃帖子，无法确定的中间情况保留。
 _OFF_TOPIC_BELOW = 0.3
-# A stance counts only when Jev is not genuinely uncertain about it.
+# 只有 Jev 对立场有足够把握时才将其计入统计。
 _STANCE_CONFIDENCE = 0.5
 
 QUESTIONS = {
@@ -62,16 +59,14 @@ QUESTIONS = {
 
 
 class TypeSafeError(Exception):
-    """A System One request that did not produce answers."""
+    """表示 System One 请求未能返回有效答案的异常。"""
 
 
 def system_one(state, questions: dict) -> dict[str, dict]:
-    """Ask ``questions`` about ``state``; return the answers keyed by question name.
+    """针对 ``state`` 询问 ``questions``，以问题名作为键返回答案。
 
-    Rate-limit and overload responses and dropped connections are retried with
-    backoff, honouring ``Retry-After``; any other failure raises
-    ``TypeSafeError`` at once.
-    """
+    限流、过载或连接中断时执行退避重试，并尊重 ``Retry-After``；
+    其他异常立即抛出 ``TypeSafeError``。"""
     body = {
         "state": state,
         "model": os.environ.get("TYPESAFE_DEFAULT_MODEL") or _DEFAULT_MODEL,
@@ -125,17 +120,16 @@ def _stance(answer: dict) -> str:
 
 
 def _url() -> str:
-    """System One's endpoint: the base TypeSafe's SDKs read, plus /v1/systemone."""
+    """System One 接口地址：在 TypeSafe SDK 使用的基础地址后添加 /v1/systemone。"""
     base = os.environ.get("TYPESAFE_BASE_URL") or _DEFAULT_BASE_URL
     return base.rstrip("/") + "/v1/systemone"
 
 
 def jev_screen(ticker: str):
-    """A post screen for the social fetchers, or None without a TypeSafe key.
+    """创建用于社交数据获取器的帖子筛选器；没有 TypeSafe 密钥时返回 None。
 
-    The screen takes the post texts and returns one keep flag per post and a
-    note line for the top of the source's block.
-    """
+    筛选器接收帖子文本，为每条帖子返回保留标志，
+    并生成一行放在数据区块开头的说明。"""
     if not os.environ.get("TYPESAFE_API_KEY"):
         return None
     name = resolve_instrument_identity(ticker).get("company_name")
@@ -165,8 +159,8 @@ def _unscreened(instrument: str, posts: list[str], failure: str) -> tuple[list[b
 
 
 def _ask_each(instrument: str, posts: list[str]) -> list[dict]:
-    """One request per post. The first failure raises at once: requests not yet
-    sent are cancelled, and those in flight finish in the background unread."""
+    """每个帖子发起一次请求。首次失败立即抛异常；
+    尚未发出的请求被取消，已在执行的请求完成后其结果不再读取。"""
     answers: list = [None] * len(posts)
     pool = ThreadPoolExecutor(max_workers=_WORKERS)
     try:

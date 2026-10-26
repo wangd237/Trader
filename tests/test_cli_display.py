@@ -1,8 +1,7 @@
-"""What the live display shows, and what the run log keeps.
+"""验证实时展示和运行日志是否保留正确内容。
 
-The display drops a message it judges empty, and the state log is written for a
-person to read afterwards. Both got that wrong in ways that hide real content.
-"""
+之前有些真实消息被界面误判为空并丢弃，
+同时记录给用户事后查阅的日志也遗漏了内容。"""
 
 from __future__ import annotations
 
@@ -22,7 +21,7 @@ from tradingagents.graph.analyst_execution import build_analyst_execution_plan
 @pytest.mark.unit
 @pytest.mark.parametrize("text", ["0", "False", "None", "[]", "{}", "0.0"])
 def test_a_message_that_reads_like_a_python_value_is_still_text(text):
-    """These were parsed as Python and judged empty, so the message vanished."""
+    """这些内容被错误地按 Python 假值处理，导致消息没有显示。"""
     assert extract_content_string(text) == text
 
 
@@ -70,7 +69,7 @@ def _bare_graph(tmp_path):
 
 @pytest.mark.unit
 def test_the_state_log_keeps_non_ascii_readable(tmp_path):
-    """Reports can be in any language; the log is read by a person."""
+    """报告可能使用任意语言，日志应适合人类阅读。"""
     _bare_graph(tmp_path)._log_state("2026-09-01", _state("600519.SS"))
 
     written = next(tmp_path.rglob("full_states_log*.json")).read_text(encoding="utf-8")
@@ -81,8 +80,8 @@ def test_the_state_log_keeps_non_ascii_readable(tmp_path):
 
 @pytest.mark.unit
 def test_the_state_log_names_each_field_as_the_state_does(tmp_path):
-    """One name per field: the Trader's plan under its state key, and no second
-    copy of the managers' decisions under the debate states."""
+    """每个字段只显示一次对应报告；Trader 计划使用自身状态键，
+    不能在辩论状态中重复显示管理者决策。"""
     _bare_graph(tmp_path)._log_state("2026-09-01", _state("NVDA"))
 
     logged = json.loads(next(tmp_path.rglob("full_states_log*.json")).read_text(encoding="utf-8"))
@@ -95,9 +94,9 @@ def test_the_state_log_names_each_field_as_the_state_does(tmp_path):
 
 @pytest.mark.unit
 def test_the_live_display_does_not_scroll_the_terminal():
-    """A layout taller than the window makes rich redraw by scrolling, which
-    reads as flicker; the alternate screen holds it in place (#784). The final
-    report prints after the live view ends, so nothing is lost when it closes."""
+    """布局高于窗口时 Rich 会滚动重绘，造成闪烁；
+    使用备用屏幕可避免此问题（#784）。
+    关闭实时视图后仍会输出最终完整报告。"""
     import inspect
 
     import cli.main as m

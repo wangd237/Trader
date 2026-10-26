@@ -1,14 +1,12 @@
-"""Polymarket prediction-market vendor.
+"""Polymarket 预测市场数据提供商。
 
-Surfaces live, market-implied probabilities for forward-looking events (Fed
-decisions, recession, elections, geopolitics, crypto) to the news analyst, as a
-complement to news (what happened) and FRED macro data (where things stand):
-what the crowd actually prices to happen next.
+向新闻分析师提供未来事件（美联储决策、经济衰退、选举、地缘政治、
+加密资产等）的实时市场隐含概率，补充新闻报道的已发生事件和 FRED
+宏观数据反映的当前状态，提供市场对未来的定价预期。
 
-Uses Polymarket's public Gamma API (https://gamma-api.polymarket.com) — no key,
-no auth. Each market's ``outcomePrices`` are the implied probabilities of its
-outcomes (a "Yes" at 0.76 means the market prices a 76% chance).
-"""
+调用公开的 Gamma API（https://gamma-api.polymarket.com），
+无需密钥或登录。``outcomePrices`` 表示各结果的隐含概率，
+例如 Yes 对应 0.76，表示市场定价约 76% 的发生概率。"""
 import json
 import logging
 from datetime import UTC, datetime
@@ -21,10 +19,10 @@ logger = logging.getLogger(__name__)
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
-# Network timeout (seconds), consistent with the other vendors.
+# 网络超时秒数，与其他数据提供商保持一致。
 REQUEST_TIMEOUT = 30
 
-# Default number of markets to return, ranked by traded volume.
+# 默认返回的市场数量，按照交易量排序。
 DEFAULT_LIMIT = 6
 
 
@@ -37,7 +35,7 @@ def _request(path: str, params: dict) -> dict:
 
 
 def _parse_json_list(value) -> list:
-    """Gamma encodes ``outcomes``/``outcomePrices`` as JSON-string arrays."""
+    """Gamma 将 ``outcomes`` 和 ``outcomePrices`` 编码为 JSON 字符串数组。"""
     if isinstance(value, list):
         return value
     try:
@@ -47,12 +45,10 @@ def _parse_json_list(value) -> list:
 
 
 def _is_forward_looking(market: dict, now: datetime) -> bool:
-    """Keep only open markets that resolve in the future.
+    """仅保留尚未结束、将在未来结算的市场。
 
-    ``closed`` is the reliable resolved flag (``active`` stays True even for
-    settled markets), and a past ``endDate`` means the event already resolved —
-    either way it is not a forward-looking signal.
-    """
+    ``closed`` 才是可靠的已结算标志；即使结算，``active`` 也可能为 True。
+    ``endDate`` 早于今天也表示事件不再是前瞻信号，应排除。"""
     if market.get("closed"):
         return False
     end_date = market.get("endDate")
@@ -68,21 +64,17 @@ def _is_forward_looking(market: dict, now: datetime) -> bool:
 
 
 def get_prediction_markets(topic: str, limit: int | None = None, as_of_date: str | None = None) -> str:
-    """Return live prediction-market probabilities for an event topic.
+    """获取指定事件主题的实时预测市场隐含概率。
 
-    Args:
-        topic: Event keyword(s), e.g. "Fed rate cut", "recession 2026",
-            "US election", or a sector/company event.
-        limit: Max markets to return (ranked by traded volume); ``None`` uses
-            DEFAULT_LIMIT.
-        as_of_date: The analysis date. Polymarket serves only live odds, so a
-            date before today withholds them.
+    参数：
+        topic：主题关键词，例如 "Fed rate cut"、"recession 2026"、
+            "US election"，也可为行业或公司事件。
+        limit：按交易量排序的最大市场数；None 时使用 DEFAULT_LIMIT。
+        as_of_date：分析日期。Polymarket 只提供实时赔率，历史日期不返回。
 
-    Returns:
-        A markdown report of the most-traded open markets matching the topic,
-        each with its implied probability, traded volume, resolution date, and
-        recent (1-week) move.
-    """
+    返回：
+        Markdown 报告，列出匹配主题、交易量最大的未结束市场，
+        以及概率、成交量、结算日期和最近一周的变化。"""
     if is_historical(as_of_date):
         return (
             f"Prediction-market odds are withheld for {as_of_date}. Polymarket serves "

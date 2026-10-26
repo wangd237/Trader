@@ -1,5 +1,6 @@
-"""The Responses API only exists on native OpenAI; a custom base_url on the
-openai provider must fall back to Chat Completions (#1024)."""
+"""Responses API 仅在原生 OpenAI 端点可用；
+若 openai 提供商配置自定义 base_url，
+必须回退至 Chat Completions（#1024）。"""
 
 from __future__ import annotations
 
@@ -39,5 +40,5 @@ class ResponsesApiSelectionTests:
         llm = OpenAIClient(
             "gpt-5.5", base_url="http://localhost:1234/v1", provider="openai"
         ).get_llm()
-        # use_responses_api should be absent/False so the client speaks Chat Completions.
+        # use_responses_api 必须未设置或为 False，确保客户端使用 Chat Completions。
         assert getattr(llm, "use_responses_api", False) is False

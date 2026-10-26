@@ -1,11 +1,8 @@
-"""The CLI remembers what you chose last time and offers it back.
+"""CLI 记住用户上一次的选择，并在下次启动时提供预选值。
 
-Prefill only: every prompt still appears, so a run never starts on a choice the
-user did not see. Environment variables keep skipping their step outright and
-win over anything remembered. Remembered values are validated against the
-current choices each time, since models and providers come and go between
-versions and a stale one must not be offered.
-"""
+仅预填而不跳过问题，确保用户能看到选项。
+环境变量优先级更高，仍可跳过相应交互步骤。
+由于模型和提供商会更新，所有保存的选择都必须再次验证。"""
 
 from __future__ import annotations
 
@@ -46,18 +43,18 @@ def test_a_corrupt_file_degrades_to_no_memory(tmp_path):
 
 @pytest.mark.unit
 def test_a_half_written_file_cannot_be_observed(tmp_path):
-    """Two runs finishing together must never leave a torn file behind."""
+    """两个运行同时结束时，偏好配置文件不能出现部分写入。"""
     save_last_run(SAVED)
     save_last_run({**SAVED, "research_depth": 5})
     assert load_last_run()["research_depth"] == 5
     assert list(tmp_path.glob("*.tmp*")) == []
 
 
-# --- validation against the current choices ---------------------------------
+# --- 校验当前可选项 ---------------------------------
 
 @pytest.mark.unit
 def test_a_model_that_no_longer_exists_is_dropped():
-    # gpt-5.4 is still accepted by config, but is no longer in the picker's list.
+    # gpt-5.4 仍被配置层接受，但已从交互选择菜单中移除。
     kept = sanitize({**SAVED, "quick_think_llm": "gpt-5.4"}, "stock")
     assert "quick_think_llm" not in kept
     assert kept["deep_think_llm"] == "gpt-5.6"  # the valid sibling survives
@@ -89,10 +86,10 @@ def test_a_region_specific_provider_survives():
     assert kept["llm_provider"] == "qwen-cn"
 
 
-# --- wiring ------------------------------------------------------------------
+# --- 流程连接 ------------------------------------------------------------------
 
 def _answer_every_prompt(monkeypatch):
-    """Drive the real selection flow, answering each prompt with a fixed value."""
+    """真实执行选择流程，每个交互问题由固定答案响应。"""
     import cli.main as m
 
     monkeypatch.setattr(cli_selections.updates, "enabled", lambda: False)
@@ -110,7 +107,7 @@ def _answer_every_prompt(monkeypatch):
 
 @pytest.mark.unit
 def test_selections_are_remembered_after_a_run(monkeypatch):
-    """Drives the real flow: a stubbed selections dict would hide a key mismatch."""
+    """直接伪造 selections 字典会掩盖配置键不匹配，必须测试真实流程。"""
     _answer_every_prompt(monkeypatch)
 
     cli_selections.get_user_selections()
@@ -126,8 +123,8 @@ def test_selections_are_remembered_after_a_run(monkeypatch):
 
 @pytest.mark.unit
 def test_a_custom_language_is_remembered_without_breaking_the_next_run():
-    """A free-text answer is not one of the menu's choices, and questionary
-    rejects a default it cannot find, so offering it back would crash startup."""
+    """自由输入值可能不在菜单选项内，questionary 会拒绝将它预设为默认值，
+    直接传入可能让 CLI 启动崩溃。"""
     from cli.prompts import ask_output_language
 
     save_last_run({"output_language": "Turkish"})
@@ -139,8 +136,8 @@ def test_a_custom_language_is_remembered_without_breaking_the_next_run():
 
 @pytest.mark.unit
 def test_a_remembered_endpoint_is_offered_back(monkeypatch):
-    """Users of a local or custom endpoint retyped the URL every run: it was
-    remembered and validated, then never read."""
+    """本地或自定义端点的 URL 虽曾保存并校验，
+    但未被用于下次预填，导致用户反复输入。"""
 
     save_last_run({"llm_provider": "openai_compatible", "backend_url": "http://localhost:1234/v1"})
     offered = {}

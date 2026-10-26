@@ -19,10 +19,9 @@ class AnalystExecutionPlanTests(unittest.TestCase):
             build_analyst_execution_plan(["market", "macro"])
 
     def test_social_key_displays_as_sentiment_analyst(self):
-        # The wire key stays "social" for saved-config back-compat, but the
-        # user-visible agent_node label must match the v0.2.5 rename so the
-        # wall-time summary and any future consumer of agent_node says
-        # "Sentiment Analyst" rather than the legacy "Social Analyst".
+        # 内部标识仍需保留 "social"，兼容旧版已保存配置；
+        # 但用户可见的 agent_node 名称应采用 v0.2.5 后的 "Sentiment Analyst"，
+        # 避免耗时统计或其他使用者仍看到旧称 "Social Analyst"。
         plan = build_analyst_execution_plan(["social"])
         spec = plan.specs[0]
         self.assertEqual(spec.key, "social")

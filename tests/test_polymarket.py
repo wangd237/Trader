@@ -1,8 +1,6 @@
-"""Polymarket prediction-market vendor: forward-looking filtering, volume
-ranking, formatting, graceful degradation, and router integration.
-
-All API access is mocked, so these run without a network connection.
-"""
+"""Polymarket 预测市场测试：前瞻事件过滤、按交易量排序、
+格式化、故障降级及路由集成。
+所有 API 请求均已模拟，不依赖真实网络。"""
 import copy
 import unittest
 from unittest import mock
@@ -29,9 +27,9 @@ def _market(question, prob, *, volume, end_date, closed=False, wk=None):
     }
 
 
-# One event with a mix: a high-volume open market, a closed one, a past-dated
-# one, and a lower-volume open one. Far-future / far-past dates keep the test
-# independent of the real clock.
+# 构造同一事件下的多种市场：高交易量开放市场、已结束市场、
+# 过去日期市场及低交易量开放市场。使用足够远的未来和过去日期，
+# 避免测试依赖当前时间。
 _SEARCH = {
     "events": [
         {
@@ -79,7 +77,7 @@ class PolymarketFormatTests(unittest.TestCase):
         self.assertIn("1-week -4.5pp", out)  # -0.045 -> -4.5pp
 
     def test_weekly_change_omitted_when_absent(self):
-        # "Open small?" has wk=None -> no 1-week clause on its line.
+        # "Open small?" 的 wk 为 None，不应显示一周变化。
         with mock.patch.object(polymarket, "_request", return_value=_SEARCH):
             out = polymarket.get_prediction_markets("anything", limit=10)
         small_line = next(ln for ln in out.splitlines() if "Open small?" in ln)
@@ -94,7 +92,7 @@ class PolymarketFormatTests(unittest.TestCase):
 @pytest.mark.unit
 class PolymarketResilienceTests(unittest.TestCase):
     def test_network_error_degrades_gracefully(self):
-        # An external-service hiccup must not raise into the analyst.
+        # 外部服务短暂故障不能向上抛出并终止分析师。
         with mock.patch.object(
             polymarket, "_request", side_effect=requests.RequestException("boom")
         ):

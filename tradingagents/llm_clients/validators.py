@@ -1,10 +1,10 @@
-"""Model name validators for each provider."""
+"""各 LLM 提供商的模型名称校验工具。"""
 
 from .model_catalog import get_known_models
 
-# Providers whose model names are user-defined (local servers, relays, hosted
-# OpenAI-compatible endpoints serving many models), so any model string is
-# accepted without warning.
+# 有些提供商的模型名由用户自行定义，例如本地服务、代理或
+# 可调用大量模型的托管 OpenAI 兼容端点；对此类提供商，
+# 允许任意模型字符串且不显示警告。
 _ANY_MODEL_PROVIDERS = (
     "ollama", "openrouter", "openai_compatible",
     "mistral", "kimi", "groq", "nvidia", "bedrock", "chatgpt",
@@ -18,10 +18,9 @@ VALID_MODELS = {
 
 
 def validate_model(provider: str, model: str) -> bool:
-    """Check if model name is valid for the given provider.
+    """检查模型名称是否适用于指定提供商。
 
-    For ollama, openrouter, and openai_compatible - any model is accepted.
-    """
+    对于 Ollama、OpenRouter、openai_compatible 等，接受任意模型名。"""
     provider_lower = provider.lower()
 
     if provider_lower in _ANY_MODEL_PROVIDERS:

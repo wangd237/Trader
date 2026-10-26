@@ -1,10 +1,7 @@
-"""Stale OHLCV guard (#1021): a vendor returning a year-old partial frame must
-be rejected, not fed into the report as if it were current.
-
-The guard raises NoMarketDataError with a stale-specific detail, so the router's
-existing try-next-vendor + single-sentinel handling applies and the sentinel
-surfaces the reason.
-"""
+"""过期 OHLCV 防护（#1021）：提供商只返回一年前的部分数据时，
+不能将它当作当前行情传入报告。
+应抛出携带过期原因的 NoMarketDataError，
+复用路由层现有的回退提供商及统一缺失标记机制。"""
 import copy
 import unittest
 from unittest import mock
@@ -37,7 +34,7 @@ def _frame(date):
 @pytest.mark.unit
 class StaleGuardUnitTests(unittest.TestCase):
     def test_recent_prior_trading_day_is_accepted(self):
-        # 1 day before curr_date — well within the freshness window.
+        # 比 curr_date 早一天，仍处于允许的新鲜度窗口内。
         _assert_ohlcv_not_stale(_frame("2026-06-10"), "2026-06-11", "CB")
 
     def test_year_old_row_is_rejected_with_detail(self):
@@ -49,7 +46,7 @@ class StaleGuardUnitTests(unittest.TestCase):
         self.assertIn("stale", msg)
 
     def test_empty_frame_is_left_to_caller(self):
-        # Empty is a no-data condition handled elsewhere, not a staleness one.
+        # 空表属于无数据问题，应由其他分支处理，不应标记为过期。
         _assert_ohlcv_not_stale(
             pd.DataFrame(columns=["Date", "Close"]), "2026-06-11", "X"
         )

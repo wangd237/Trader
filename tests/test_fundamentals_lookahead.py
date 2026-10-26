@@ -1,18 +1,11 @@
-"""Historical fundamentals must not leak a live company profile (#1300).
+"""历史基本面分析不能泄漏当前公司概况（#1300）。
 
-Vendor "company overview" endpoints (yfinance ``Ticker.info``, Alpha Vantage
-``OVERVIEW``) serve only present-day values: market cap, valuation multiples,
-the 52-week range and TTM income all move with today's quote, and even name,
-sector and industry shift when a company renames or is reclassified. None of it
-carries a historical vintage, so emitting it into a run dated in the past puts
-post-decision information into the analyst's context, in the same family as the
-FRED (#1275), social (#1220) and memory (#1251) leaks.
-
-Both vendors withhold on one shared rule (``date_window.withhold_live_profile``)
-so switching ``fundamental_data`` between them cannot reintroduce the leak. The
-statement tools stay point-in-time by filtering on ``as_of_date``, and a live run
-is unchanged. All API access is mocked.
-"""
+Yahoo 的 Ticker.info 和 Alpha Vantage 的 OVERVIEW 仅提供当前值：
+市值、估值、近一年价格区间及 TTM 指标随行情变化，
+公司名、板块和行业也可能发生更名或调整。
+由于缺少历史版本，不能把今天的这些字段注入过去的运行。
+两个提供商共用 date_window.withhold_live_profile，
+防止切换数据源绕过限制；当日运行不受影响。所有请求均使用 mock。"""
 from __future__ import annotations
 
 from unittest import mock
@@ -29,7 +22,7 @@ from tradingagents.dataflows.vendors.yahoo import (
 _TODAY = "2026-09-07"
 _PAST = "2024-05-10"
 
-# A profile payload mixing stable-looking identity fields with market-dependent ones.
+# 公司概况混合了看似稳定的身份字段和随行情变化的字段。
 _INFO = {
     "longName": "Apple Inc.",
     "sector": "Technology",
@@ -40,7 +33,7 @@ _INFO = {
     "totalRevenue": 391_000_000_000,
 }
 
-# Values that must never reach a historical run.
+# 这些值不能传给历史运行。
 _LEAKY = ("3500000000000", "34.2", "260.1", "391000000000",
           "Apple Inc.", "Technology", "Consumer Electronics")
 
@@ -53,7 +46,7 @@ def _yf(as_of_date, info=_INFO, today=_TODAY):
 
 
 def _av(as_of_date, today=_TODAY):
-    """Alpha Vantage path; the API call is mocked so a leak would be visible."""
+    """通过 mock Alpha Vantage 请求验证历史泄漏检查。"""
     with mock.patch.object(date_window, "get_current_date", return_value=today), \
          mock.patch.object(av, "_make_api_request",
                            return_value="MarketCapitalization: 3500000000000") as req:
@@ -68,20 +61,19 @@ class TestYFinanceHistoricalRun:
             assert leaked not in out, f"leaked live-profile value {leaked!r}"
 
     def test_states_the_as_of_date_and_explains_itself(self):
-        # The analyst must be told why the figures are absent, so it does not
-        # read the gap as a real signal or fabricate around it.
+        # 必须告诉分析师缺失数值的原因，
+        # 避免模型将数据缺口误判为真实市场信号或自行编造。
         out = _yf(_PAST)
         assert f"Point-in-time as of: {_PAST}" in out
         assert "withheld" in out
         assert _PAST in out and _TODAY not in out
 
     def test_no_wall_clock_retrieval_stamp(self):
-        # The old header stamped datetime.now(), which is what surfaced the leak.
+        # 旧报告标题使用 datetime.now()，暴露了时间泄漏问题。
         assert "Data retrieved on:" not in _yf(_PAST)
 
     def test_the_request_is_not_even_made(self):
-        # The response would only be discarded; skipping it also avoids burning
-        # vendor quota on a call whose result cannot be used.
+        # 历史调用的响应最终会被丢弃，因此提前跳过还可节省 API 请求额度。
         with mock.patch.object(date_window, "get_current_date", return_value=_TODAY), \
              mock.patch.object(yahoo_market.yf, "Ticker") as tk:
             yahoo_fundamentals.get_fundamentals("AAPL", _PAST)
@@ -90,8 +82,8 @@ class TestYFinanceHistoricalRun:
 
 @pytest.mark.unit
 class TestAlphaVantageHistoricalRun:
-    """The same rule must hold for the other fundamentals vendor, or switching
-    data_vendors["fundamental_data"] would silently reintroduce the leak."""
+    """另一个基本面提供商也必须遵守该规则，
+    否则切换 data_vendors["fundamental_data"] 就会重新引入泄漏。"""
 
     def test_overview_is_withheld(self):
         out, _ = _av(_PAST)
@@ -126,8 +118,8 @@ class TestLiveRunUnchanged:
 @pytest.mark.unit
 class TestNoUsableFieldsStillRaises:
     def test_stub_payload_raises_no_market_data(self, monkeypatch):
-        # yfinance returns {"trailingPegRatio": None} for unknown symbols; on a
-        # live run that must stay a hard "no data", not a bare header.
+        # yfinance 对未知标的可能返回 {"trailingPegRatio": None}；
+        # 实时运行应将它视为无数据，不能输出只有标题的空报告。
         from tradingagents.dataflows.errors import NoMarketDataError
         from tradingagents.dataflows.vendors.yahoo import common
 

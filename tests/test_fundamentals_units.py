@@ -1,9 +1,9 @@
-"""Yahoo's percent-valued fields say they are percentages (#1414).
+"""Yahoo 以百分数返回的字段必须明确显示单位（#1414）。
 
-``Ticker.info`` gives ``dividendYield`` and ``debtToEquity`` in percent (0.41 is
-0.41%; 78.4 is 78.4%, a ratio of 0.78) but margins and returns as fractions
-(0.27 is 27%). Printed side by side without a unit, one scale reads as the other.
-"""
+Ticker.info 中 dividendYield 和 debtToEquity 是百分数
+（0.41 表示 0.41%，78.4 表示 78.4%），
+但利润率和收益率是比例小数（0.27 表示 27%）。
+如果并列显示却不标注单位，很容易混淆两种数值口径。"""
 
 from unittest import mock
 
@@ -41,8 +41,8 @@ def test_an_absent_percent_field_is_left_out():
 
 @pytest.mark.unit
 def test_each_money_figure_carries_the_currency_it_is_in():
-    """Yahoo quotes London in pence but states EPS and market cap in pounds, and
-    the income figures in the reporting currency (#1456)."""
+    """Yahoo 对伦敦市场以便士报价，但 EPS 和市值使用英镑；
+    损益表金额则使用公司财报币种（#1456）。"""
     out = _fundamentals({"longName": "Shell plc", "currency": "GBp", "financialCurrency": "USD",
                          "marketCap": 203440193536, "trailingEps": 3.42, "bookValue": 29.1,
                          "fiftyTwoWeekHigh": 3800.0, "fiftyDayAverage": 3500.5,
@@ -72,8 +72,8 @@ def test_a_figure_with_no_stated_currency_is_printed_bare():
 
 @pytest.mark.unit
 def test_income_figures_without_a_stated_reporting_currency_are_printed_bare():
-    """The quote currency is not evidence of the reporting currency (an ADR quotes
-    in USD and reports in TWD), so an unknown one is not guessed."""
+    """报价货币并不代表财报货币：ADR 可能以 USD 报价、以 TWD 披露财报。
+    因此不能猜测缺失的财报币种。"""
     out = _fundamentals({"longName": "X", "currency": "USD", "marketCap": 1000, "totalRevenue": 50})
 
     assert "Market Cap: 1000 USD" in out and "Revenue (TTM): 50\n" in out + "\n"

@@ -1,12 +1,9 @@
-"""Shared-router / path_map completeness (#1088).
+"""共用路由器的 path_map 完整性测试（#1088）。
 
-Both `should_continue_risk_analysis` (three risk edges) and
-`should_continue_debate` (two research-debate edges) are single routers whose
-return set is larger than any one edge previously mapped. Each edge now shares a
-complete path map (`RISK_ANALYSIS_PATH_MAP` / `DEBATE_PATH_MAP`), so a
-fall-through return can never hit a missing entry -- which would crash LangGraph
-mid-run on prompt/i18n/refactor drift in the speaker labels.
-"""
+风控讨论路由器可返回三个风险节点，多空辩论路由器可返回两个研究节点；
+早先各边的映射表并未覆盖完整返回集合。
+现在分别共用 RISK_ANALYSIS_PATH_MAP 和 DEBATE_PATH_MAP，
+防止发言者标签变化时出现缺失路径，导致 LangGraph 执行中断。"""
 import pytest
 
 from tradingagents.graph.conditional_logic import ConditionalLogic
@@ -39,7 +36,7 @@ def test_router_return_always_routable(latest_speaker):
 @pytest.mark.unit
 def test_router_terminates_at_round_limit():
     logic = ConditionalLogic(max_risk_discuss_rounds=1)
-    # count >= 3 * rounds routes to the Portfolio Manager (debate ends)
+    # 当 count 达到 3 * rounds 时结束辩论并路由到 Portfolio Manager。
     assert logic.should_continue_risk_analysis(_state("Neutral", count=3)) == "Portfolio Manager"
 
 
@@ -51,9 +48,9 @@ def test_path_map_covers_full_router_range():
         for s in ("Aggressive", "Conservative", "Neutral", "drift")
         for c in (0, 99)
     }
-    # Every value the router can emit is a key in the shared map...
+    # 路由器可能产生的每个返回值都必须在共用映射中有对应键。
     assert returns <= set(RISK_ANALYSIS_PATH_MAP)
-    # ...and the terminal target is reachable.
+    # 并且最终终止目标必须可达。
     assert "Portfolio Manager" in returns
 
 

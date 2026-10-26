@@ -1,10 +1,8 @@
-"""Dated tools take the analysis date from graph state, not from the model.
+"""带日期参数的工具必须从 Graph 状态读取分析日期，而不能信任模型输入。
 
-Every point-in-time guard behind a tool trusts the date it is given. A model that
-omits the date, or passes today's instead of the analysis date, would otherwise
-walk past them. The run's trade_date is injected from state and hidden from the
-model-visible schema.
-"""
+各数据源的时点保护依赖接收到的日期；
+模型如果漏传日期或填入今天，就可能绕过历史约束。
+运行日期必须从状态注入，并在模型可见的工具 Schema 中隐藏。"""
 
 from __future__ import annotations
 
@@ -78,8 +76,8 @@ INSTRUMENT_TOOLS = [
 @pytest.mark.unit
 @pytest.mark.parametrize("tool", INSTRUMENT_TOOLS, ids=lambda t: t.name)
 def test_the_instrument_is_hidden_from_the_model(tool):
-    """The model once passed an indicator name as the symbol ("rsi", "atr" are
-    real tickers), and another company's data reached the report."""
+    """模型曾将指标名 rsi、atr 误当 ticker（它们也可能是合法代码），
+    导致把其他公司的数据插入报告。"""
     properties = tool.tool_call_schema.model_json_schema()["properties"]
     assert "symbol" not in properties and "ticker" not in properties
 
@@ -96,7 +94,7 @@ class _State(MessagesState):
 
 
 def _run(tool, args, module):
-    """Call the tool through a ToolNode in a graph carrying the run's trade_date."""
+    """通过带有 trade_date 状态的 Graph 中 ToolNode 调用工具。"""
     graph = StateGraph(_State)
     graph.add_node("tools", ToolNode([tool]))
     graph.add_edge(START, "tools")
@@ -138,8 +136,8 @@ def test_direct_call_without_state_is_unchanged():
 @pytest.mark.unit
 @pytest.mark.parametrize("tool", ["get_news", "get_stock_data"])
 def test_a_start_date_that_is_not_a_date_is_sent_back_to_the_model(tool):
-    # A model can append a stray character to a date (#1476). No window can be
-    # guessed from it, so the vendor is not called and the model is told the form.
+    # 模型可能在日期后多输出无效字符（#1476）。
+    # 不能猜测窗口，应跳过提供商调用并提示模型正确格式。
     with mock.patch.object(tools, "route_to_vendor", return_value="ok") as routed:
         out = getattr(tools, tool).func("NVDA", "2026-09-26\u0629", "2026-10-03", trade_date="2026-10-03")
     assert not routed.called

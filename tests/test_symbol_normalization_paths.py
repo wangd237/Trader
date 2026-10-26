@@ -1,10 +1,8 @@
-"""Symbol normalization must apply on every yfinance path, not just price fetch.
+"""ticker 规范化必须覆盖全部 yfinance 路径，而不只是价格下载。
 
-Regression tests for #983 (instrument identity), #984 (reflection returns), and
-the news path: a broker symbol like XAUUSD must resolve to the same Yahoo symbol
-(GC=F) that the price path uses, so identity, realized-return, and news lookups
-hit the right instrument instead of failing/mismatching.
-"""
+回归覆盖身份解析（#983）、反思收益（#984）及新闻查询。
+例如券商代码 XAUUSD 必须统一映射到 Yahoo 的 GC=F，
+避免身份、收益和新闻错误地对应不同标的。"""
 import pandas as pd
 
 import tradingagents.agents.context as au

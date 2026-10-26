@@ -41,7 +41,7 @@ from tradingagents.dataflows.vendors.yahoo.news import get_global_news_yfinance,
 
 logger = logging.getLogger(__name__)
 
-# Tools organized by category
+# 按类别组织的工具。
 TOOLS_CATEGORIES = {
     "core_stock_apis": {
         "description": "OHLCV stock price data",
@@ -86,26 +86,25 @@ TOOLS_CATEGORIES = {
     }
 }
 
-# Optional enrichment categories. These add macro/event context to the news
-# analyst but are not core to a decision, so a vendor failure here degrades to a
-# sentinel instead of aborting the run (a bad LLM-supplied indicator, a missing
-# key, or a network blip should not crash an analysis over flavour data). Core
-# categories (prices, fundamentals, news) still raise so a broken primary is loud.
+# 可选的数据增强类别，为新闻分析师补充宏观和事件背景，
+# 但不是生成决策的核心依赖。因此即使提供商失败，也只返回缺失标记，
+# 不应让分析中止：例如 LLM 提供了错误指标、缺少密钥或网络短时异常。
+# 价格、基本面和新闻等核心数据类别仍应抛出异常，明确暴露主数据源故障。
 OPTIONAL_CATEGORIES = {"macro_data", "prediction_markets"}
 
-# Mapping of methods to their vendor-specific implementations
+# 方法与各数据提供商实现之间的映射。
 VENDOR_METHODS = {
-    # core_stock_apis
+    # 股票核心数据接口。
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
     },
-    # technical_indicators
+    # 技术指标接口。
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
     },
-    # fundamental_data
+    # 基本面数据接口。
     "get_fundamentals": {
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
@@ -125,7 +124,7 @@ VENDOR_METHODS = {
         "sec_edgar": get_sec_edgar_income_statement,
         "yfinance": get_yfinance_income_statement,
     },
-    # news_data
+    # 新闻数据接口。
     "get_news": {
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
@@ -138,11 +137,11 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_insider_transactions,
         "yfinance": get_yfinance_insider_transactions,
     },
-    # macro_data
+    # 宏观数据接口。
     "get_macro_indicators": {
         "fred": get_fred_macro_data,
     },
-    # prediction_markets
+    # 预测市场接口。
     "get_prediction_markets": {
         "polymarket": get_polymarket_prediction_markets,
     },
@@ -150,7 +149,7 @@ VENDOR_METHODS = {
 
 
 def get_category_for_method(method: str) -> str:
-    """Get the category that contains the specified method."""
+    """获取指定方法所属的数据类别。"""
     for category, info in TOOLS_CATEGORIES.items():
         if method in info["tools"]:
             return category
@@ -158,23 +157,22 @@ def get_category_for_method(method: str) -> str:
 
 
 def get_vendor(category: str, method: str = None) -> str:
-    """Get the configured vendor for a data category or specific tool method.
-    Tool-level configuration takes precedence over category-level.
-    """
+    """获取数据类别或某个工具方法配置的数据提供商。
+    工具级配置优先于类别级配置。"""
     config = get_config()
 
-    # Check tool-level configuration first (if method provided)
+    # 若指定了方法，先检查工具级配置。
     if method:
         tool_vendors = config.get("tool_vendors", {})
         if method in tool_vendors:
             return tool_vendors[method]
 
-    # Fall back to category-level configuration
+    # 工具级配置不存在时，回退到类别级配置。
     return config.get("data_vendors", {}).get(category, "default")
 
 
 def vendor_unavailable(method: str, error: Exception) -> str:
-    """What a call returns when every vendor was throttled or unreachable."""
+    """当所有提供商均被限流或无法访问时，构造调用返回结果。"""
     return (
         f"DATA_UNAVAILABLE: no configured vendor could serve {method} right now "
         f"({error}). This says nothing about the instrument; report the "
@@ -183,11 +181,11 @@ def vendor_unavailable(method: str, error: Exception) -> str:
 
 
 def no_data_available(error: NoMarketDataError) -> str:
-    """What a call returns when every vendor that answered had no usable data."""
+    """当所有成功响应的提供商均无可用数据时，构造调用返回结果。"""
     resolved = "" if error.canonical == error.symbol else f" (resolved to '{error.canonical}')"
-    # Surface the typed error's detail (e.g. "latest row is 2025-06-11 ...
-    # stale") so the agent sees the specific reason — invalid symbol, no
-    # coverage, or stale data — not just a generic "unavailable".
+    # 保留具体类型异常的详细信息（如“最新一行日期为 2025-06-11，数据已过期”），
+    # 便于 Agent 区分无效 ticker、无覆盖范围、数据过期等具体原因，
+    # 而不仅看到笼统的“不可用”。
     reason = f" ({error.detail})" if error.detail else ""
     return (
         f"NO_DATA_AVAILABLE: No usable market data for '{error.symbol}'{resolved} from "
@@ -198,7 +196,7 @@ def no_data_available(error: NoMarketDataError) -> str:
 
 
 def route_to_vendor(method: str, *args, **kwargs):
-    """Route method calls to appropriate vendor implementation with fallback support."""
+    """按配置将方法调用路由到合适的数据提供商实现，并支持顺序回退。"""
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
@@ -208,11 +206,11 @@ def route_to_vendor(method: str, *args, **kwargs):
 
     all_available_vendors = list(VENDOR_METHODS[method].keys())
 
-    # The configured vendor list IS the chain: we do NOT silently fall back to
-    # vendors the user did not choose (#988/#289) — that returned data from an
-    # unexpected source and caused cross-vendor inconsistencies. For multi-vendor
-    # fallback, list them in order, e.g. data_vendors="yfinance,alpha_vantage".
-    # The "default" sentinel (no explicit config) uses all available vendors.
+    # 配置的数据提供商列表就是完整回退链，不会自动转向用户没有选择的
+    # 提供商（#988/#289）。否则可能意外使用其他来源的数据，
+    # 造成不同提供商之间的口径不一致。需要多数据源回退时按顺序写入，
+    # 例如 data_vendors="yfinance,alpha_vantage"；无显式配置的
+    # "default" 标记才表示使用全部可用提供商。
     explicit = [v for v in primary_vendors if v and v != "default"]
     if explicit:
         vendor_chain = [v for v in explicit if v in VENDOR_METHODS[method]]
@@ -236,8 +234,8 @@ def route_to_vendor(method: str, *args, **kwargs):
             return impl_func(*args, **kwargs)
         except VendorUnavailableError as e:
             logger.warning("Vendor %r unavailable for %s: %s; trying next vendor.", vendor, method, e)
-            # Kept so an all-unavailable chain can say the vendor was the
-            # problem, rather than reporting nothing about the symbol.
+            # 保留错误信息，使所有提供商都不可用时能够明确指出
+            # 是数据提供商故障，而不是误报标的没有数据。
             last_unavailable = e
             continue
         except VendorNotConfiguredError as e:
@@ -249,42 +247,40 @@ def route_to_vendor(method: str, *args, **kwargs):
             last_no_data = e  # No data here; another configured vendor may have it
             continue
         except Exception as e:
-            # Don't let one vendor's failure crash the call when another can
-            # serve it, but never swallow silently: a broken primary must be
-            # visible in the logs (#989), not hidden behind a fallback's verdict.
+            # 如果其他提供商仍能提供数据，就不应让单个提供商失败导致调用中断；
+            # 但也不能静默吞掉错误：主提供商故障必须写入日志（#989），
+            # 不能被回退结果掩盖。
             logger.warning("Vendor %r failed for %s: %s", vendor, method, e)
             if first_error is None:
                 first_error = e
             failed = e
             continue
 
-    # A vendor that throttled or failed the request never said whether it has
-    # the symbol, so no other vendor's "no data" can speak for the whole chain:
-    # report the vendors as the problem, not the instrument. It must not end
-    # the run either.
+    # 被限流或请求失败的提供商并没有确认是否持有该标的数据，
+    # 因此不能依据其他提供商的“无数据”推断整条链均无数据。
+    # 应报告提供商故障而非标的故障，同时不能直接终止分析。
     if last_unavailable is not None:
         return vendor_unavailable(method, last_unavailable)
     if failed is not None and last_no_data is not None:
         return vendor_unavailable(method, failed)
 
-    # Every vendor that answered reported "no data": the symbol is genuinely unavailable.
-    # Return one explicit, instructive sentinel rather than a vendor-specific
-    # empty string, so the agent reports "unavailable" instead of inventing a
-    # value. This takes precedence over incidental fallback errors.
+    # 所有成功响应的提供商都报告“无数据”，可以认为该标的不可用。
+    # 返回统一且明确的缺失标记，而不是某家提供商特有的空字符串，
+    # 从而让 Agent 报告“不可用”而不是编造数值。
+    # 这一判断优先于回退过程中出现的次要错误。
     if last_no_data is not None:
         if first_error is not None:
-            # A vendor also hit a real error; surface it in logs so the no-data
-            # verdict can't hide a broken primary (network/auth/etc.).
+            # 若其他提供商还出现过真实错误，应记录到日志，
+            # 避免“无数据”结论掩盖主数据源的网络或鉴权故障。
             logger.warning(
                 "Returning NO_DATA for %s, but a vendor errored earlier: %s",
                 method, first_error,
             )
         return no_data_available(last_no_data)
 
-    # No vendor returned data and none reported clean "no data" — surface the
-    # first real error (e.g. the primary vendor's network failure). Optional
-    # enrichment categories degrade to a sentinel instead, so flavour data can't
-    # abort the run.
+    # 所有提供商都没有返回数据，也没有明确返回“无数据”时，
+    # 应暴露第一个真实错误（例如主提供商网络故障）。
+    # 可选增强类别则退化为缺失标记，避免非核心数据问题终止运行。
     if first_error is not None:
         if category in OPTIONAL_CATEGORIES:
             logger.warning("Optional %s unavailable for %s: %s", category, method, first_error)

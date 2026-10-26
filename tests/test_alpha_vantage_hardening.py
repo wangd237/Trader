@@ -1,11 +1,8 @@
-"""Alpha Vantage request hardening.
+"""Alpha Vantage 请求健壮性测试。
 
-Regressions for #990 (no request timeout -> can hang), #991 (invalid-key
-responses mislabeled as rate limits and silently treated as transient), and
-#1115 (fundamentals look-ahead filter never ran because the payload is a JSON
-string, not a dict), and the date trim that keeps post-end_date bars out of a
-historical run.
-"""
+回归验证 #990（未设置网络超时会卡住）、#991（错误密钥被误判为限流）、
+#1115（基本面内容是 JSON 字符串而非字典，导致历史过滤未执行），
+以及历史运行必须丢弃结束日期之后行情的数据裁剪。"""
 import json
 
 import pytest
@@ -52,8 +49,8 @@ def test_rate_limit_detected(monkeypatch):
 
 @pytest.mark.unit
 def test_invalid_key_not_mislabeled_as_rate_limit(monkeypatch):
-    # AV's invalid-key notice mentions "API key"; it must NOT be treated as a
-    # (transient) rate limit, but surface as a real configuration error (#991).
+    # 无效密钥提示含有“API key”，不能将其误判为临时限流，
+    # 而应明确报告配置错误（#991）。
     body = ('{"Information": "the parameter apikey is invalid or missing. '
             'Please claim your free API key on (https://www.alphavantage.co/support/#api-key)."}')
     monkeypatch.setattr(net.requests, "get", _patched_get(body))
@@ -66,9 +63,9 @@ def test_invalid_key_not_mislabeled_as_rate_limit(monkeypatch):
 
 @pytest.mark.unit
 def test_a_rejected_request_is_unavailable_not_data(monkeypatch):
-    """Alpha Vantage answers a call it rejects with {"Error Message": ...}, for an
-    unknown symbol and for a malformed call alike, so it says nothing about the
-    instrument; served as data it reads as a one-line CSV or as "no data" (#1442)."""
+    """Alpha Vantage 对无效标的和错误请求都可能返回 {"Error Message": ...}，
+    因此无法据此判断标的是否真实存在；
+    如果当作数据返回，可能被解释为单行 CSV 或无数据（#1442）。"""
     from tradingagents.dataflows import router
     from tradingagents.dataflows.config import set_config
     from tradingagents.dataflows.errors import VendorUnavailableError
@@ -92,7 +89,7 @@ def test_a_rejected_request_is_unavailable_not_data(monkeypatch):
     '{"Information": "the apikey k-secret is invalid or missing."}',
 ])
 def test_the_key_never_reaches_an_error_message(monkeypatch, body):
-    """Alpha Vantage can echo the key in its notices; error text reaches logs and reports."""
+    """Alpha Vantage 可能在提示中回显密钥；错误内容会进入日志和报告。"""
     from tradingagents.dataflows.errors import VendorError
 
     monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "k-secret")
@@ -123,7 +120,7 @@ def test_fundamentals_no_curr_date_passes_through(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Date trim (see the rationale on the unguarded trim in alpha_vantage.common)
+# 日期裁剪（设计理由见 alpha_vantage.common 中的直接裁剪逻辑）
 # ---------------------------------------------------------------------------
 
 _DAILY_CSV = (
@@ -144,8 +141,8 @@ def test_stock_data_is_trimmed_to_the_requested_window(monkeypatch):
 
 @pytest.mark.unit
 def test_unparseable_body_is_never_served_untrimmed(monkeypatch):
-    """The trim used to swallow the failure and return the whole body, putting
-    bars after end_date into a backtest. It must raise instead."""
+    """裁剪过程不能吞掉异常并返回未筛选的全部数据，
+    否则历史回测会读取 end_date 之后的价格。"""
     monkeypatch.setattr(avs, "_make_api_request",
                         lambda *a, **k: "timestamp,close\nnot-a-date,1\n")
 
@@ -160,7 +157,7 @@ def test_empty_body_still_passes_through(monkeypatch):
 
 
 def test_request_error_message_carries_no_key(monkeypatch):
-    # Alpha Vantage also sends its key in the URL (#1324).
+    # Alpha Vantage 也把密钥写在 URL 中（#1324）。
     import requests
     key = "AVKEY1234567890XYZ"
     monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", key)
@@ -176,7 +173,7 @@ def test_request_error_message_carries_no_key(monkeypatch):
 
 @pytest.mark.unit
 def test_global_news_omitted_optionals_use_the_configured_defaults(monkeypatch):
-    """The tool passes None for an omitted look_back_days or limit (#1326)."""
+    """工具未收到 look_back_days 或 limit 时会传入 None（#1326）。"""
     from tradingagents.dataflows.vendors.alpha_vantage import news as alpha_vantage_news
 
     monkeypatch.setattr(alpha_vantage_news, "get_config",
@@ -191,9 +188,8 @@ def test_global_news_omitted_optionals_use_the_configured_defaults(monkeypatch):
 
 @pytest.mark.unit
 def test_the_news_window_includes_the_analysis_day(monkeypatch):
-    """time_to was midnight at the start of the end date, so everything
-    published during the analysis day, the most decision-relevant day, was
-    excluded. The yfinance path includes it."""
+    """time_to 曾指向结束日期当天零点，导致分析日全天发布的新闻被遗漏；
+    应与 yfinance 路径一样包含整个结束日期。"""
     from tradingagents.dataflows.vendors.alpha_vantage import news as alpha_vantage_news
 
     seen = {}
@@ -209,8 +205,8 @@ def test_the_news_window_includes_the_analysis_day(monkeypatch):
 @pytest.mark.unit
 @pytest.mark.parametrize("indicator", ["vwma", "mfi"])
 def test_an_indicator_this_vendor_lacks_lets_the_next_one_serve_it(indicator):
-    """Returning prose counts as success to the router, so the chain stops at a
-    vendor that cannot compute the indicator while the next one can."""
+    """如果返回普通文字，路由器会误以为调用成功，
+    导致当前数据源不支持指标时也无法回退到下一提供商。"""
     from tradingagents.dataflows.errors import VendorError
     from tradingagents.dataflows.vendors.alpha_vantage import indicator as alpha_vantage_indicator
 
@@ -220,8 +216,8 @@ def test_an_indicator_this_vendor_lacks_lets_the_next_one_serve_it(indicator):
 
 @pytest.mark.unit
 def test_ticker_news_asks_for_only_as_many_articles_as_configured(monkeypatch):
-    """The endpoint returns 50 articles with per-article sentiment arrays by
-    default, and the whole payload went into the prompt."""
+    """接口默认返回 50 篇文章，且附带各文章的情绪数组；
+    如果全部注入 Prompt，会增加大量上下文消耗。"""
     from tradingagents.dataflows.vendors.alpha_vantage import news as alpha_vantage_news
 
     monkeypatch.setattr(alpha_vantage_news, "get_config", lambda: {"news_article_limit": 8})
