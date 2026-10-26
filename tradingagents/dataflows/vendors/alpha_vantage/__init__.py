@@ -1,5 +1,5 @@
-# Aggregates the per-category Alpha Vantage implementations into one module the
-# vendor router imports from; the imports below are the public surface.
+# 将分散在各个类别下的 Alpha Vantage 实现聚合到同一个模块，
+# 供数据路由器导入；下方导入项构成对外公开接口。
 from tradingagents.dataflows.vendors.alpha_vantage.fundamentals import (
     get_balance_sheet,
     get_cashflow,
