@@ -1,8 +1,7 @@
-"""An optional HTML copy of the report, for readers who do not open Markdown (#1419).
+"""为不方便阅读 Markdown 的用户提供可选 HTML 报告（#1419）。
 
-It is one self-contained file: no script, no remote asset, nothing a report's
-text can inject; the Markdown report is unchanged.
-"""
+HTML 为完全自包含文件，不需要脚本或外部资源，
+模型报告文本也不能注入可执行内容；原 Markdown 文件保持不变。"""
 
 import re
 
@@ -97,7 +96,7 @@ def test_run_details_show_each_value_as_its_own_field(tmp_path):
     for value in ("anthropic", "claude-opus-5-5", "openai", "gpt-6-luna", "market", "news",
                   "sec_edgar", "yfinance"):
         assert value in _fields(header)
-    # Vendors are named by what they serve, and a chain keeps its order.
+    # 数据提供商以所提供的数据类别命名，回退链保留实际顺序。
     assert "Prices" in header and "Fundamentals" in header and "fundamental_data" not in header
     assert header.index(">sec_edgar<") < header.rindex(">yfinance<")
 
@@ -115,8 +114,8 @@ def test_the_contents_name_each_section_once_and_list_its_agents_beneath(tmp_pat
 def test_the_section_rail_opens_on_hover_and_keyboard_focus(tmp_path):
     page = _html(tmp_path)
     css = page[page.index("<style>"):page.index("</style>")]
-    # Wide screens: a rail centred on the left edge whose names are hidden from
-    # sight only (still read by screen readers) until it is pointed at or focused.
+    # 宽屏左侧导航栏收起时仅在视觉上隐藏名称，
+    # 屏幕阅读器仍可读取；悬停或聚焦后展开。
     assert "top: 50%" in css and "translateY(-50%)" in css
     assert ".contents:hover .label" in css and ".contents:focus-within .label" in css
     assert "display: none" not in css.split(".contents .label", 1)[1].split("}", 1)[0]
@@ -155,7 +154,7 @@ def test_the_page_credits_its_maker_in_a_line_of_text(tmp_path):
     page = _html(tmp_path)
     footer = page[page.index('<footer class="credit">'):page.index("</footer>")]
     assert re.sub(r"<[^>]+>", "", footer).split() == ["Trader", "based", "on", "TradingAgents"]
-    # The placeholder leads to Trader; the credit identifies its upstream source.
+    # 占位品牌图标链接到 Trader，来源说明标明上游项目。
     assert 'href="https://github.com/TauricResearch/TradingAgents"' in footer
     assert 'href="https://github.com/wangd237/Trader"' in footer and "tauric.ai" not in footer
     assert "<svg" not in footer and 'class="brand"' in footer
@@ -164,8 +163,8 @@ def test_the_page_credits_its_maker_in_a_line_of_text(tmp_path):
 
 @pytest.mark.unit
 def test_the_packaged_logo_stays_inert(tmp_path):
-    # The logo is drawn inside every report, so it may only ever hold shapes:
-    # no script, event handler, link, embedded document or external reference.
+    # 图标嵌入每份报告，只能包含静态图形，
+    # 不能包含脚本、事件处理器、链接、嵌入文档或远程资源。
     from importlib.resources import files
 
     logo = files("tradingagents").joinpath("assets/trader-logo.svg").read_text(encoding="utf-8")

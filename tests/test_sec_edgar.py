@@ -1,11 +1,8 @@
-"""SEC EDGAR fundamentals: statements as they were filed, not as they read today.
+"""SEC EDGAR 财报回归测试：使用历史实际披露版本，而非今天的最新重述值。
 
-Every other fundamentals vendor serves the current value of a past period and
-cuts on the fiscal period end, so a run sees figures the company had not yet
-filed, and later restatements replace what was actually published. EDGAR carries
-the filing date of every fact, so a run can be limited to what was on file by its
-own date.
-"""
+其他提供商可能只按财务期末过滤今天的数字，
+导致历史运行提前看到尚未申报或后来重述的报表。
+EDGAR 逐项保存提交日期，可以按运行日期限制可见内容。"""
 
 from __future__ import annotations
 
@@ -43,7 +40,7 @@ FACTS = {
             _fact("2024-09-28", 6.08, "2024-11-01", start="2023-09-30"),
         ]}},
         "RevenueFromContractWithCustomerExcludingAssessedTax": {"units": {"USD": [
-            # One filing reports the quarter and the year to date under one end date.
+            # 一份申报可在同一期末同时包含单季度和年初至今累计数值。
             _fact("2025-12-31", 81_300_000_000, "2026-01-29", form="10-Q", fp="Q2", start="2025-10-01"),
             _fact("2025-12-31", 158_900_000_000, "2026-01-29", form="10-Q", fp="Q2", start="2025-07-01"),
             _fact("2024-09-28", 391_035_000_000, "2024-11-01", start="2023-09-30"),
@@ -72,7 +69,7 @@ def test_a_non_filer_is_reported_as_such_not_as_missing_data():
 
 @pytest.mark.unit
 def test_a_restated_figure_reads_as_it_did_at_the_time():
-    """The value published then, not the correction filed later."""
+    """使用当时已披露的数字，不能提前看到后来的更正。"""
     as_filed = sec_edgar.get_balance_sheet("AAPL", "annual", "2009-06-30")
     restated = sec_edgar.get_balance_sheet("AAPL", "annual", "2011-01-01")
     assert "39572" in as_filed and "36171" not in as_filed
@@ -81,7 +78,7 @@ def test_a_restated_figure_reads_as_it_did_at_the_time():
 
 @pytest.mark.unit
 def test_a_period_that_ended_but_was_not_filed_yet_is_not_served():
-    """The fiscal year ended 2024-09-28; it reached the public on 2024-11-01."""
+    """财政年度在 2024-09-28 结束，但数据到 2024-11-01 才公开。"""
     before = sec_edgar.get_balance_sheet("AAPL", "annual", "2024-10-15")
     after = sec_edgar.get_balance_sheet("AAPL", "annual", "2024-11-15")
     assert "2024-09-28" not in before
@@ -90,7 +87,7 @@ def test_a_period_that_ended_but_was_not_filed_yet_is_not_served():
 
 @pytest.mark.unit
 def test_the_quarter_is_not_confused_with_the_year_to_date():
-    """One filing carries both spans under the same end date (#MSFT-shaped)."""
+    """同一份申报可能在相同期末包含不同跨度的财务数据。"""
     out = sec_edgar.get_income_statement("AAPL", "quarterly", "2026-06-01")
     assert "81300" in out
     assert "158900" not in out
@@ -119,7 +116,7 @@ def test_a_filer_with_no_usable_facts_reads_differently_from_a_non_filer(monkeyp
 
 @pytest.mark.unit
 def test_company_facts_are_fetched_once_per_company_not_once_per_date(tmp_path, monkeypatch):
-    """A sweep asks for many dates; the filing history is the same file."""
+    """批量扫描多个日期时，申报历史本身保持相同文件。"""
     calls = []
     monkeypatch.setattr(sec_edgar, "_fetch_json",
                         lambda url: calls.append(url) or (TICKER_MAP if "company_tickers" in url else FACTS))
@@ -130,8 +127,8 @@ def test_company_facts_are_fetched_once_per_company_not_once_per_date(tmp_path, 
 
 @pytest.mark.unit
 def test_it_works_unconfigured_and_takes_the_caller_s_own_contact(monkeypatch):
-    """SEC returns 403 for a User-Agent with no contact address, so the default
-    carries one; a caller who sets their own replaces it."""
+    """SEC 对缺少联系方式的 User-Agent 可能返回 403；
+    默认标识应包含联系信息，用户自定义值应覆盖它。"""
     monkeypatch.delenv("SEC_EDGAR_USER_AGENT", raising=False)
     assert "@" in sec_edgar._user_agent()
 
@@ -141,7 +138,7 @@ def test_it_works_unconfigured_and_takes_the_caller_s_own_contact(monkeypatch):
 
 @pytest.mark.unit
 def test_a_throttle_lets_the_next_vendor_try(monkeypatch):
-    """SEC throttles by refusing the request; the router then tries yfinance."""
+    """SEC 拒绝限流请求时，路由器应回退尝试 yfinance。"""
     import requests
 
     from tradingagents.dataflows.errors import VendorUnavailableError
@@ -156,7 +153,7 @@ def test_a_throttle_lets_the_next_vendor_try(monkeypatch):
 
 @pytest.mark.unit
 def test_values_do_not_break_the_columns():
-    """Figures run to the billions; a thousands separator would split the field."""
+    """金额可能达到数十亿；千位分隔符会破坏 CSV 字段结构。"""
     out = sec_edgar.get_balance_sheet("AAPL", "annual", "2024-11-15")
     body = [row for row in out.splitlines() if row.startswith("Total Assets")][0]
     assert body.count(",") == out.splitlines()[3].count(",")
@@ -164,8 +161,8 @@ def test_values_do_not_break_the_columns():
 
 @pytest.mark.unit
 def test_a_per_share_figure_keeps_its_own_unit():
-    """Statements are reported in millions, but EPS is dollars per share: scaling
-    it the same way prints a real figure as zero."""
+    """多数财务报表以百万为单位，但 EPS 使用美元/股，
+    不能按金额同等缩放，否则真实每股收益可能显示为零。"""
     out = sec_edgar.get_income_statement("AAPL", "annual", "2024-11-15")
     row = [r for r in out.splitlines() if r.startswith("Diluted EPS")][0]
     assert "6.08" in row
@@ -174,8 +171,7 @@ def test_a_per_share_figure_keeps_its_own_unit():
 
 @pytest.mark.unit
 def test_every_row_has_one_cell_per_period():
-    """An untagged line still has to line up with the columns, or the table is
-    misread by position."""
+    """没有匹配财务标签的行仍需保持完整列数，避免表格位置错乱。"""
     out = sec_edgar.get_balance_sheet("AAPL", "annual", "2024-11-15")
     table = [r for r in out.splitlines() if r and not r.startswith("#")]
     widths = {row.count(",") for row in table}
@@ -198,8 +194,8 @@ def test_a_server_error_lets_the_next_vendor_try(monkeypatch):
 
 @pytest.mark.unit
 def test_older_periods_fall_back_to_the_tag_the_filer_used_then():
-    """Filers renamed lines when the revenue standard changed, so one tag covers
-    only recent years. Each period takes one tag, never a sum of two."""
+    """财务准则变化后，公司可能更改申报标签；
+    每个时期选取一个有值的标签，不能把不同标签加总重复计数。"""
     facts = {"Revenues": {"units": {"USD": [_fact("2015-09-26", 233_715_000_000, "2015-10-28",
                                                  start="2014-09-28")]}},
              "RevenueFromContractWithCustomerExcludingAssessedTax": {"units": {"USD": [
@@ -222,7 +218,7 @@ def test_a_period_reported_under_two_tags_takes_the_preferred_one_not_both():
 
 @pytest.mark.unit
 def test_the_default_identification_names_the_package_version(monkeypatch):
-    """SEC asks automated clients to identify themselves; a release names its own version."""
+    """SEC 要求自动化客户端提供身份标识，版本信息应来自实际软件版本。"""
     import tradingagents
 
     monkeypatch.delenv("SEC_EDGAR_USER_AGENT", raising=False)
@@ -231,7 +227,8 @@ def test_the_default_identification_names_the_package_version(monkeypatch):
 
 @pytest.mark.unit
 def test_capital_expenditure_is_found_under_either_tag_filers_use(monkeypatch):
-    """NVIDIA and Amazon report purchases of productive assets, not of property and equipment."""
+    """NVIDIA 和 Amazon 可能将资本性支出标记为生产性资产购买，
+    而非字面上的不动产及设备购买。"""
     facts = {"facts": {"us-gaap": {"PaymentsToAcquireProductiveAssets": {"units": {"USD": [
         _fact("2024-12-31", 70_000_000, "2025-02-10", start="2024-01-01")]}}}}}
     monkeypatch.setattr(sec_edgar, "_fetch_json",
@@ -246,7 +243,8 @@ def _columns(out):
 
 @pytest.mark.unit
 def test_an_annual_balance_sheet_has_no_quarter_end_columns():
-    """A balance has no span, so a 10-Q's quarter-end balance passed as annual."""
+    """资产负债表是时点数据，没有期间跨度；
+    不能因此把 10-Q 的季度末余额误认为年度报表。"""
     annual = _columns(sec_edgar.get_balance_sheet("AAPL", "annual", "2024-11-15"))
     quarterly = _columns(sec_edgar.get_balance_sheet("AAPL", "quarterly", "2024-11-15"))
     assert "2022-03-26" not in annual and "2024-09-28" in annual
@@ -255,8 +253,8 @@ def test_an_annual_balance_sheet_has_no_quarter_end_columns():
 
 @pytest.mark.unit
 def test_a_twelve_month_total_from_a_quarterly_report_is_not_a_fiscal_year(monkeypatch):
-    """Amazon's 10-Qs report trailing twelve months, which passed the annual span
-    check and read as fiscal years overlapping the real ones."""
+    """Amazon 的 10-Q 可能披露过去十二个月累计值，
+    即使跨度符合一年，也不能错误当成年报并与真实财年重叠。"""
     facts = {"facts": {"us-gaap": {"NetCashProvidedByUsedInOperatingActivities": {"units": {"USD": [
         _fact("2024-12-31", 115_000_000_000, "2025-02-07", start="2024-01-01"),
         _fact("2025-03-31", 113_000_000_000, "2025-05-02", form="10-Q", fp="Q1", start="2024-04-01"),
@@ -268,8 +266,8 @@ def test_a_twelve_month_total_from_a_quarterly_report_is_not_a_fiscal_year(monke
 
 @pytest.mark.unit
 def test_a_recast_outside_the_annual_report_still_counts_from_its_filing(monkeypatch):
-    """Filers recast past years in an 8-K after a split or spin-off. The annual
-    report decides the columns; the value is the latest filing of any form."""
+    """拆分或剥离后，公司可能通过 8-K 重述历史年度；
+    年度报告决定展示哪些列，而数值应取该历史日期之前最新的有效申报。"""
     facts = {"facts": {"us-gaap": {"EarningsPerShareDiluted": {"units": {"USD/shares": [
         _fact("2017-03-31", 16.97, "2017-06-15", form="20-F", start="2016-04-01"),
         _fact("2017-03-31", 2.12, "2019-09-30", form="6-K", start="2016-04-01"),
@@ -287,8 +285,8 @@ def test_a_recast_outside_the_annual_report_still_counts_from_its_filing(monkeyp
 
 @pytest.mark.unit
 def test_a_cash_flow_filed_year_to_date_is_served_with_its_span(monkeypatch):
-    """Many filers tag a 10-Q's cash flows only year to date (3, 6, then 9 months):
-    a quarterly table of discrete quarters alone would stop at each first quarter."""
+    """许多申报人只在 10-Q 中提供年初至今的现金流累计数
+    （3、6、9 个月）；不能只依赖独立季度值，否则每年第一季之后会缺数据。"""
     ytd = [
         _fact("2025-12-27", 30_000_000_000, "2026-01-30", form="10-Q", fp="Q1", start="2025-09-28"),
         _fact("2026-03-28", 53_000_000_000, "2026-05-01", form="10-Q", fp="Q2", start="2025-09-28"),

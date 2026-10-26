@@ -1,10 +1,7 @@
-"""Vendor router must respect the configured chain and never silently hide a
-broken primary.
+"""数据路由器必须严格遵守配置的提供商链，不能静默掩盖主数据源故障。
 
-Regressions for #988 (explicit single-vendor config still fell back to others),
-#289 (fallback ran for unchosen vendors), and #989 (serious primary failures
-were swallowed without a trace).
-"""
+回归 #988（单提供商配置仍回退）、#289（调用未选择的数据源）、
+#989（主提供商严重故障被吞掉）。"""
 import copy
 import unittest
 from unittest import mock
@@ -19,8 +16,8 @@ from tradingagents.dataflows.errors import NoMarketDataError
 
 
 def _reset_config():
-    # Hard reset: set_config() merges, so empty DEFAULT dicts (e.g. tool_vendors)
-    # don't clear keys leaked by other tests. Replace the global outright.
+    # 必须彻底重置：set_config() 只合并字典，
+    # 空 DEFAULT 字典不会清除其他测试留下的工具级提供商配置。
     config_module._config = copy.deepcopy(default_config.DEFAULT_CONFIG)
 
 
@@ -56,7 +53,7 @@ class VendorRoutingTests(unittest.TestCase):
         )
 
     def test_explicit_single_vendor_does_not_fall_back(self):
-        # #988: with yfinance pinned, a healthy alpha_vantage must NOT be used.
+        # #988：指定仅使用 yfinance 时，不能转用可用的 alpha_vantage。
         set_config({"data_vendors": {"core_stock_apis": "yfinance"}})
         av = mock.Mock(side_effect=_returns("AV_DATA"))
         with self._route({"yfinance": _no_data, "alpha_vantage": av}):
@@ -65,16 +62,15 @@ class VendorRoutingTests(unittest.TestCase):
         av.assert_not_called()  # the unchosen vendor was never tried
 
     def test_explicit_multi_vendor_falls_back_within_chain(self):
-        # Listing both vendors opts in to ordered fallback.
+        # 同时列出两个提供商才表示允许按顺序回退。
         set_config({"data_vendors": {"core_stock_apis": "yfinance,alpha_vantage"}})
         with self._route({"yfinance": _no_data, "alpha_vantage": _returns("AV_DATA")}):
             result = router.route_to_vendor("get_stock_data", "AAPL", "2026-01-01", "2026-01-10")
         self.assertEqual(result, "AV_DATA")
 
     def test_primary_error_is_logged_not_masked(self):
-        # #989: a broken primary is not hidden behind a fallback's verdict. It
-        # never said whether it has the symbol, so the answer is unavailable,
-        # and the failure is in the logs.
+        # #989：不能让后备提供商的判断掩盖主提供商失败；
+        # 主提供商未确认是否覆盖标的，最终应报告不可用，并记录错误。
         set_config({"data_vendors": {"core_stock_apis": "yfinance,alpha_vantage"}})
         with self._route({"yfinance": _raises(ValueError("boom")), "alpha_vantage": _no_data}), \
                 self.assertLogs("tradingagents.dataflows.router", level="WARNING") as cm:
@@ -91,7 +87,7 @@ class VendorRoutingTests(unittest.TestCase):
         self.assertIn("bogus_vendor", str(ctx.exception))
 
     def test_default_sentinel_uses_all_vendors(self):
-        # No explicit choice ("default") keeps the resilient full-chain behavior.
+        # 未显式指定时，default 保留完整回退链。
         set_config({"data_vendors": {"core_stock_apis": "default"}})
         with self._route({"yfinance": _no_data, "alpha_vantage": _returns("AV_DATA")}):
             result = router.route_to_vendor("get_stock_data", "AAPL", "2026-01-01", "2026-01-10")
@@ -101,8 +97,8 @@ class VendorRoutingTests(unittest.TestCase):
         return mock.patch.dict(router.VENDOR_METHODS, {method: vendors}, clear=False)
 
     def test_optional_category_degrades_instead_of_raising(self):
-        # An optional enrichment vendor (FRED macro) that raises must NOT abort
-        # the run — the router returns a sentinel so the analysis proceeds.
+        # 可选宏观增强数据（如 FRED）抛异常时，
+        # 路由器应返回不可用标记，不能中断分析。
         set_config({"data_vendors": {"macro_data": "fred"}})
         with self._route_method(
             "get_macro_indicators", {"fred": _raises(ValueError("FRED 400: bad series"))}
@@ -112,8 +108,8 @@ class VendorRoutingTests(unittest.TestCase):
         self.assertIn("macro_data", result)
 
     def test_core_category_still_raises_on_error(self):
-        # A core category (single configured vendor) propagates the error so a
-        # broken primary is loud, not silently degraded.
+        # 核心数据仅配置单一提供商时应暴露实际错误，
+        # 不能无声地回退或降级。
         set_config({"data_vendors": {"core_stock_apis": "yfinance"}})
         with self._route({"yfinance": _raises(ValueError("boom"))}), \
                 self.assertRaises(ValueError):
