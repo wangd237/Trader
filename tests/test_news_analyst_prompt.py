@@ -1,9 +1,8 @@
-"""Guard the news analyst prompt against tool-signature drift (#1116).
+"""验证新闻分析师 Prompt 与工具签名保持一致（#1116）。
 
-The prompt used to advertise ``get_news(query, ...)``, tricking the LLM into
-hallucinating free-text query calls. The instrument now comes from the run's
-state, so the model passes only the window.
-"""
+旧 Prompt 错误地告知模型可调用 ``get_news(query, ...)``，
+诱导其编造自由文本 query 参数。
+现在标的从运行状态提供，模型只需要传入分析窗口。"""
 import inspect
 
 import pytest

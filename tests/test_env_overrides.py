@@ -1,4 +1,4 @@
-"""Tests for TRADINGAGENTS_* env-var overlay onto DEFAULT_CONFIG."""
+"""测试 TRADINGAGENTS_* 环境变量覆盖 DEFAULT_CONFIG 的规则。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import tradingagents.default_config as default_config_module
 
 
 def _config_with_env(monkeypatch, **overrides):
-    """The defaults as the environment given here would set them."""
+    """根据测试环境变量构造预期的默认配置。"""
     for key in list(default_config_module._ENV_OVERRIDES):
         monkeypatch.delenv(key, raising=False)
     for key, val in overrides.items():
@@ -69,7 +69,7 @@ def test_bool_coercion(monkeypatch, raw, expected):
 
 
 def test_reasoning_thinking_overrides(monkeypatch):
-    """The provider reasoning/thinking knobs are env-configurable (non-interactive runs)."""
+    """提供商的推理参数可以通过环境变量配置，支持无人值守运行。"""
     config = _config_with_env(
         monkeypatch,
         TRADINGAGENTS_OPENAI_REASONING_EFFORT="high",
@@ -82,7 +82,7 @@ def test_reasoning_thinking_overrides(monkeypatch):
 
 
 def test_reasoning_effort_defaults_to_none(monkeypatch):
-    """Unset reasoning/thinking knobs stay None so each provider uses its own default."""
+    """未设置的推理参数保留 None，允许每个提供商使用自己的默认值。"""
     config = _config_with_env(monkeypatch)
     assert config["openai_reasoning_effort"] is None
     assert config["google_thinking_level"] is None
@@ -90,7 +90,7 @@ def test_reasoning_effort_defaults_to_none(monkeypatch):
 
 
 def test_empty_env_value_is_passthrough(monkeypatch):
-    """Empty TRADINGAGENTS_* values must not clobber the built-in default."""
+    """空 TRADINGAGENTS_* 环境变量不能覆盖内置默认配置。"""
     config = _config_with_env(
         monkeypatch,
         TRADINGAGENTS_LLM_PROVIDER="",
@@ -101,8 +101,8 @@ def test_empty_env_value_is_passthrough(monkeypatch):
 
 
 def test_empty_path_value_keeps_the_default_path(monkeypatch):
-    """.env.example lists the path variables blank; uncommenting one made the
-    path empty, and the graph failed creating its directories."""
+    """env.example 将路径变量留空；仅取消注释不应导致配置路径变为空，
+    进而使 Graph 创建目录失败。"""
     config = _config_with_env(
         monkeypatch,
         TRADINGAGENTS_RESULTS_DIR="",
@@ -116,7 +116,7 @@ def test_empty_path_value_keeps_the_default_path(monkeypatch):
 
 
 def test_invalid_int_raises(monkeypatch):
-    """Garbage int values should surface a ValueError at import, not silently misconfigure."""
+    """无效整数字符串应在模块导入时抛出 ValueError，不能静默使用错误配置。"""
     monkeypatch.setenv("TRADINGAGENTS_MAX_DEBATE_ROUNDS", "not-a-number")
     with pytest.raises(ValueError, match="TRADINGAGENTS_MAX_DEBATE_ROUNDS"):
         default_config_module.build_default_config()
@@ -124,14 +124,14 @@ def test_invalid_int_raises(monkeypatch):
 
 @pytest.mark.parametrize("bad", ["treu", "flase", "maybe", "2", "enabled"])
 def test_invalid_bool_raises(monkeypatch, bad):
-    """A misspelled boolean must fail loudly (like ints) instead of silently False."""
+    """布尔值拼写错误应明确报错，不能无声地转换成 False。"""
     monkeypatch.setenv("TRADINGAGENTS_CHECKPOINT_ENABLED", bad)
     with pytest.raises(ValueError, match="TRADINGAGENTS_CHECKPOINT_ENABLED"):
         default_config_module.build_default_config()
 
 
 def test_unknown_env_var_is_ignored(monkeypatch):
-    """Env vars outside _ENV_OVERRIDES must not bleed into DEFAULT_CONFIG."""
+    """未列入 _ENV_OVERRIDES 的环境变量不应进入 DEFAULT_CONFIG。"""
     config = _config_with_env(
         monkeypatch,
         TRADINGAGENTS_NONEXISTENT_KEY="oops",
