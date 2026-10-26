@@ -15,21 +15,19 @@ def get_indicator(
     time_period: int = 14,
     series_type: str = "close"
 ) -> str:
-    """
-    Returns Alpha Vantage technical indicator values over a time window.
+    """返回指定窗口内 Alpha Vantage 技术指标的数值。
 
-    Args:
-        symbol: ticker symbol of the company
-        indicator: technical indicator to get the analysis and report of
-        as_of_date: The current trading date you are trading on, YYYY-mm-dd
-        look_back_days: how many days to look back
-        interval: Time interval (daily, weekly, monthly)
-        time_period: Number of data points for calculation
-        series_type: The desired price type (close, open, high, low)
+    参数：
+        symbol：公司交易代码。
+        indicator：要获取的技术指标。
+        as_of_date：当前分析交易日，格式 YYYY-mm-dd。
+        look_back_days：回溯天数。
+        interval：采样间隔（日、周、月）。
+        time_period：指标计算周期包含的数据点数量。
+        series_type：指定使用 close、open、high 或 low。
 
-    Returns:
-        String containing indicator values and description
-    """
+    返回：
+        包含指标数值及说明的字符串。"""
     from datetime import datetime
 
     from dateutil.relativedelta import relativedelta
@@ -65,8 +63,8 @@ def get_indicator(
     }
 
     if indicator not in supported_indicators:
-        # A vendor error, not a caller error: another vendor may compute it, and
-        # the router decides. yfinance rejects a name nobody serves.
+        # 这是数据提供商错误，而非调用者错误。其他提供商可能支持该指标，
+        # 是否回退由路由器判断；yfinance 也会拒绝所有提供商都不支持的指标名。
         raise NoMarketDataError(
             symbol, symbol,
             f"Alpha Vantage does not serve {indicator}; it serves {list(supported_indicators)}"
@@ -75,10 +73,10 @@ def get_indicator(
     as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
     before = as_of_dt - relativedelta(days=look_back_days)
 
-    # Get the full data for the period instead of making individual calls
+    # 一次获取整个窗口的数据，而不是逐日单独请求。
     _, required_series_type = supported_indicators[indicator]
 
-    # Use the provided series_type or fall back to the required one
+    # 优先使用传入的 series_type，否则使用指标要求的默认序列。
     if required_series_type:
         series_type = required_series_type
 
@@ -138,9 +136,9 @@ def get_indicator(
                 "datatype": "csv"
             })
         else:
-            # This vendor has no endpoint for the indicator. Raising lets the
-            # router try the next vendor, which computes it; returning prose
-            # counted as a successful answer and ended the chain here.
+            # 当前提供商没有该指标的接口，应抛出异常，让路由器尝试
+            # 能计算该指标的下一个提供商。若返回普通错误文本会被当作成功，
+            # 导致回退链提前结束。
             raise NoMarketDataError(
                 symbol, symbol, f"Alpha Vantage does not serve the {indicator} indicator"
             )
@@ -155,7 +153,7 @@ def get_indicator(
         except ValueError:
             return f"Error: 'time' column not found in data for {indicator}. Available columns: {header}"
 
-        # Map internal indicator names to expected CSV column names from Alpha Vantage
+        # 将内部指标名称映射为 Alpha Vantage CSV 的列名。
         col_name_map = {
             "macd": "MACD", "macds": "MACD_Signal", "macdh": "MACD_Hist",
             "boll": "Real Middle Band", "boll_ub": "Real Upper Band", "boll_lb": "Real Lower Band",
@@ -166,7 +164,7 @@ def get_indicator(
         target_col_name = col_name_map.get(indicator)
 
         if not target_col_name:
-            # Default to the second column if no specific mapping exists
+            # 没有专用映射时，默认使用第二列。
             value_col_idx = 1
         else:
             try:
@@ -190,7 +188,7 @@ def get_indicator(
                 except (ValueError, IndexError):
                     continue
 
-        # Sort by date and format output
+        # 按日期排序并格式化输出。
         result_data.sort(key=lambda x: x[0])
 
         ind_string = ""
@@ -210,9 +208,8 @@ def get_indicator(
         return result_str
 
     except VendorError:
-        # Unavailable vendor, throttle, or an indicator this vendor does not
-        # serve. Let it propagate so the router falls back to a vendor that can,
-        # instead of returning the failure as a successful-looking string.
+        # 提供商不可用、触发限流或不支持指标时，应向上抛出错误，
+        # 让路由器回退到其他可用提供商，而不是将失败文本当作成功结果。
         raise
     except Exception as e:
         logger.warning("Alpha Vantage indicator %s failed: %s", indicator, e)
