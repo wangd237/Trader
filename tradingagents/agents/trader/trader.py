@@ -1,4 +1,4 @@
-"""Trader: turns the Research Manager's investment plan into a concrete transaction proposal."""
+"""Trader：将 Research Manager 的投资计划转换成具体交易提案。"""
 
 from __future__ import annotations
 
@@ -24,11 +24,9 @@ def create_trader(llm):
         company_name = state["company_of_interest"]
         instrument_context = get_instrument_context_from_state(state)
         investment_plan = state["investment_plan"]
-        # The research plan digests the debate but loses exact price structure;
-        # give the Trader the technical market report so entry/stop levels are
-        # grounded in real ATR / support-resistance / current price (#1167). The
-        # report is empty when the user did not select the market analyst, so
-        # only offer it (and the grounding instruction) when it has content.
+        # 研究计划汇总了辩论，却可能缺少具体价格依据。
+        # 因此向 Trader 补充技术分析报告，以实际 ATR、支撑阻力位及当前价格
+        # 指导入场和止损价（#1167）。若未选市场分析师，就不注入空报告。
         market_report = (state["market_report"] or "").strip()
         portfolio_context = get_portfolio_context_from_state(state)
 
@@ -50,9 +48,8 @@ def create_trader(llm):
                     "You are a trading agent analyzing market data to make investment decisions. "
                     "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
                     + grounding
-                    # Entry/stop are numeric price fields. Asking for concrete
-                    # levels invites a percentage ("15%"), which is not a price
-                    # and fails the structured parse (#1288).
+                    # 入场和止损字段必须是具体价格，不能是百分比（例如 15%）；
+                    # 后者会导致结构化解析失败（#1288）。
                     + "State entry price and stop-loss as absolute price levels in the "
                     "instrument's quote currency (for example 189.5), never a percentage "
                     "or a range; convert a percentage distance to the price level it "
