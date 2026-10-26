@@ -1,20 +1,9 @@
-"""Pydantic schemas used by agents that produce structured output.
+"""结构化输出 Agent 使用的 Pydantic Schema。
 
-The framework's primary artifact is still prose: each agent's natural-language
-reasoning is what users read in the saved markdown reports and what the
-downstream agents read as context.  Structured output is layered onto the
-three decision-making agents (Research Manager, Trader, Portfolio Manager)
-so that:
-
-- Their outputs follow consistent section headers across runs and providers
-- Each provider's native structured-output mode is used (json_schema for
-  OpenAI/xAI, response_schema for Gemini, tool-use for Anthropic)
-- Schema field descriptions become the model's output instructions, freeing
-  the prompt body to focus on context and the rating-scale guidance
-- A render helper turns the parsed Pydantic instance back into the same
-  markdown shape the rest of the system already consumes, so display,
-  memory log, and saved reports keep working unchanged
-"""
+系统主要以可读的 Markdown 作为产物，同时通过 Pydantic
+规范 Research Manager、Trader、Portfolio Manager 的输出结构。
+不同提供商分别使用 json_schema、response_schema 或工具调用模式；
+Schema 字段描述为模型提供输出约束，渲染后保持现有报告和记忆格式兼容。"""
 
 from __future__ import annotations
 
@@ -23,29 +12,20 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-# LLMs sometimes write a placeholder string ("None", "N/A", ...) into an optional
-# numeric field instead of omitting it. Coerce those to None so the structured
-# call validates instead of erroring (#1058). Pydantic still parses real numeric
-# strings ("189.5") to float.
+# LLM 有时将可选数值字段写成 "None"、"N/A" 等占位字符串，
+# 而不是省略字段。转换成 None 可使结构化校验通过（#1058）；
+# 有效数字字符串（如 "189.5"）仍由 Pydantic 解析为 float。
 _NULLISH_FLOAT = {"", "none", "n/a", "na", "null", "nil", "-", "tbd", "unknown"}
 
 
 def _coerce_optional_float(value):
-    """Normalise an LLM-written optional numeric field before validation.
+    """在字段验证前规范化模型返回的可选数值。
 
-    Three shapes show up in practice: a placeholder string ("None", "N/A") in
-    place of an omitted value (#1058); a percentage where a price was asked for
-    ("15%", #1288); and a human-formatted price ("$1,234.50"). A percentage
-    cannot be salvaged into an absolute level -- reading "15%" as 15 would put a
-    stop at $15 on a $600 stock -- so it is dropped like a placeholder, leaving
-    one bad field to null out instead of failing the whole proposal. A formatted
-    price is reduced to its number.
-
-    Anything that is not a single number is dropped the same way. A range
-    ("150-160") or a hedge ("around 150") would otherwise reach pydantic, fail
-    validation, and discard the whole decision, losing every field the model got
-    right along with the price.
-    """
+    模型可能输出 "None"、"N/A" 等占位字符串（#1058），
+    也可能把价格写成 "15%"（#1288）或 "$1,234.50"。
+    百分比不能安全转为绝对价格，因此设为 None；
+    格式化金额可提取数字。区间或模糊数值也设为 None，
+    以免单个字段错误导致整份交易决策验证失败。"""
     if not isinstance(value, str):
         return value
     text = value.strip()
@@ -59,7 +39,7 @@ def _coerce_optional_float(value):
 
 
 # ---------------------------------------------------------------------------
-# Shared rating types
+# 共用评级类型
 # ---------------------------------------------------------------------------
 
 
@@ -88,7 +68,7 @@ class TraderAction(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# Research Manager
+# 研究经理
 # ---------------------------------------------------------------------------
 
 
@@ -139,7 +119,7 @@ def render_research_plan(plan: ResearchPlan) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Trader
+# 交易员
 # ---------------------------------------------------------------------------
 
 
@@ -200,8 +180,8 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
         "",
         f"**Reasoning**: {proposal.reasoning}",
     ]
-    # Named even when absent, so a reader can tell a level the trader chose not
-    # to give from one the schema never asked for.
+    # 即使没有具体数值也应保留字段名，以区分 Trader 主动没有给出
+    # 价格水平与 Schema 根本未要求该字段。
     for label, value in (("Entry Price", proposal.entry_price),
                          ("Stop Loss", proposal.stop_loss),
                          ("Position Sizing", proposal.position_sizing)):
@@ -214,7 +194,7 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Portfolio Manager
+# 投资组合经理
 # ---------------------------------------------------------------------------
 
 
@@ -280,8 +260,8 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         "",
         f"**Investment Thesis**: {decision.investment_thesis}",
     ]
-    # Named even when absent: a missing line reads as a field nobody asked for,
-    # so a reader cannot tell "no target" from "target not reported".
+    # 即使值为空也应保留对应字段行，以区分“没有目标”与
+    # “模型没有报告目标”。
     target = decision.price_target if decision.price_target is not None else "not provided"
     parts.extend(["", f"**Price Target**: {target}"])
     parts.extend(["", f"**Time Horizon**: {decision.time_horizon or 'not provided'}"])
@@ -289,7 +269,7 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Analyst
+# 情绪分析师
 # ---------------------------------------------------------------------------
 
 
