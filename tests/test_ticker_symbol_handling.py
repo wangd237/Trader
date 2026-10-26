@@ -17,8 +17,8 @@ class TickerSymbolHandlingTests(unittest.TestCase):
         self.assertIn("exchange suffix", context)
 
     def test_single_get_ticker_no_shadow(self):
-        # A second get_ticker with an empty prompt (a bare "?") once shadowed
-        # the descriptive one; the selection flow must use the one in prompts.
+        # 此前另一个只显示“?”的 get_ticker 覆盖了带说明的版本；
+        # 输入流程必须使用 prompts 中定义的函数。
         import cli.prompts
         import cli.selections
         self.assertIs(cli.selections.get_ticker, cli.prompts.get_ticker)

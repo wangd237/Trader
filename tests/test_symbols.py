@@ -1,4 +1,4 @@
-"""Tests for symbol normalization and the no-data routing sentinel."""
+"""测试标的代码规范化及数据缺失时的统一路由标记。"""
 
 import unittest
 
@@ -41,15 +41,15 @@ class TestNormalizeSymbol(unittest.TestCase):
         self.assertEqual(normalize_symbol("ETHUSD"), "ETH-USD")
 
     def test_six_letter_non_currency_left_alone(self):
-        # GOOGLE-style 6-letter tickers that aren't two currency codes
-        # must not be mangled into a fake forex pair.
+        # 六字母股票代码若不是两个真实货币代码组成，
+        # 不能被错误转换成外汇交易对。
         self.assertEqual(normalize_symbol("ABCDEF"), "ABCDEF")
 
     def test_empty_input_passthrough(self):
         self.assertEqual(normalize_symbol(""), "")
 
     def test_hk_five_digit_code_repadded_to_four(self):
-        # HKEX lists up to 5-digit codes; Yahoo only accepts 4 (#957).
+        # 港交所代码可能长达五位数字，而 Yahoo 的相应规则只接收四位（#957）。
         self.assertEqual(normalize_symbol("09992.HK"), "9992.HK")
         self.assertEqual(normalize_symbol("00700.HK"), "0700.HK")
         self.assertEqual(normalize_symbol("00001.HK"), "0001.HK")
@@ -93,13 +93,13 @@ class TestCryptoBase(unittest.TestCase):
         self.assertEqual(crypto_base("sol-usd"), "SOL")
 
     def test_non_crypto_returns_none(self):
-        # Plain equities, class shares, and real tickers that alias elsewhere
-        # (GOLD -> gold future on the Yahoo path) must NOT read as crypto.
+        # 普通股票、不同股权类别及可能与其他资产别名冲突的真实 ticker
+        # （如 GOLD）不能当作加密资产识别。
         for raw in ("AAPL", "BRK-B", "GOLD", "XYZ-USD", "EURUSD", "", None):
             self.assertIsNone(crypto_base(raw))
 
     def test_agrees_with_normalize_symbol(self):
-        # crypto_base is the shared primitive behind the -USD normalization.
+        # crypto_base 是统一执行 -USD 规范化的基础辅助函数。
         self.assertEqual(normalize_symbol("BTCUSD"), "BTC-USD")
         self.assertEqual(crypto_base("BTCUSD"), "BTC")
 

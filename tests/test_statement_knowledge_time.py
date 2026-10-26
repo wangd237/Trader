@@ -1,10 +1,8 @@
-"""A historical run is served statements only with a known filing time.
+"""历史运行只允许使用披露时间明确的财报。
 
-SEC EDGAR dates every filing, so it serves a past date as filed. Yahoo and Alpha
-Vantage date a statement by the period it covers, which a company publishes weeks
-later, so a past run is told they are withheld rather than served figures that may
-not yet have been public.
-"""
+SEC EDGAR 保留每次披露日期，能够返回当时已提交的版本。
+Yahoo 和 Alpha Vantage 仅提供财务期间，而公司可能数周后才发布，
+因此历史运行必须拒绝使用可能尚未公开的数字。"""
 
 import copy
 from unittest import mock
@@ -62,8 +60,8 @@ def test_statements_come_from_sec_edgar_first_by_default():
 
 @pytest.mark.unit
 def test_yahoo_withholds_insider_trades_from_a_past_run_without_asking():
-    """A trade is dated when it happened; it became public with its Form 4, up to
-    two business days later, and Yahoo reports no filing date."""
+    """内部人交易发生日不是披露日；Form 4 可能两工作日后才公开，
+    而 Yahoo 缺少披露日期。"""
     with mock.patch.object(yahoo, "yf_retry", side_effect=AssertionError("requested")):
         out = yahoo.get_insider_transactions("AAPL", PAST)
     assert "withheld" in out and PAST in out
