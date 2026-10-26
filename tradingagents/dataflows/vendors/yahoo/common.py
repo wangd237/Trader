@@ -1,4 +1,4 @@
-"""What every Yahoo request shares: its retry, and how a failure or an empty answer is reported."""
+"""Yahoo 数据请求共用的重试逻辑，以及失败或空结果的统一处理。"""
 
 import logging
 import time
@@ -15,30 +15,27 @@ YAHOO_HOST = "https://query2.finance.yahoo.com"
 
 
 def raise_for_empty(symbol: str, canonical: str, what: str) -> None:
-    """Report an empty Yahoo answer as an absence, or as an outage if it is one.
+    """判断 Yahoo 的空响应代表没有数据还是服务故障。
 
-    An empty answer from a Yahoo that cannot be reached is not an answer about
-    the symbol, so the host is probed before "this symbol has no {what}" is said.
-    """
+    如果 Yahoo 本身无法访问，空响应就不能证明指定 ticker 不存在。
+    因此先检查服务可达性，再报告该标的没有对应数据。"""
     if not vendor_reachable(YAHOO_HOST):
         raise VendorUnavailableError(f"Yahoo Finance is unreachable; no {what} was retrieved")
     raise NoMarketDataError(symbol, canonical, f"no {what}")
 
 
-# yfinance answers some failed requests with an empty result, which would read as
-# "no data" for a symbol nobody checked; raised, the failure is reported as one.
+# yfinance 对部分失败请求返回空结果，容易被误当成“标的无数据”；
+# 需要将这类请求故障明确作为异常报告。
 yf.config.debug.hide_exceptions = False
 
 
 def _answered_empty(exc: Exception) -> bool:
-    """Whether Yahoo answered that it has nothing: no such symbol (HTTP 404), or a
-    price window with no prices in it.
+    """判断 Yahoo 是否确实回答“无数据”，例如代码不存在（HTTP 404），
+    或某段价格窗口内没有行情。
 
-    yfinance raises YFPricesMissingError for that answer and also for an answer
-    that was an error (an error status, or Yahoo describing a failure), so only
-    a chart with no prices, or Yahoo saying the data does not exist, counts.
-    A missing time zone is not an answer: yfinance reports a failed lookup the same way.
-    """
+    yfinance 的 YFPricesMissingError 既可能表示无价格，也可能包装了
+    请求错误，因此只将明确的无数据响应视为不存在。
+    缺失时区信息同样不能证明标的不存在，因为失败查询也会产生类似提示。"""
     if isinstance(exc, YFPricesMissingError):
         reason = exc.yahoo_reason
         return "status_code" not in (exc.debug_info or "") and (
@@ -47,17 +44,14 @@ def _answered_empty(exc: Exception) -> bool:
 
 
 def yf_retry(func, max_retries=3, base_delay=2.0):
-    """Execute a yfinance call with exponential backoff on rate limits.
+    """对 yfinance 调用实施指数退避重试。
 
-    yfinance raises YFRateLimitError on HTTP 429 responses but does not
-    retry them internally, so this wrapper retries them. A rate limit that
-    outlasts the retries, or any other exception, is raised as
-    VendorUnavailableError: it failed in transit and says nothing about the
-    symbol. Yahoo answering that it has nothing for the symbol returns None,
-    an empty answer. ``func`` should build its own Ticker and make the request
-    itself: a Ticker keeps a failed ``info`` fetch as done, so asking the same
-    one again reads an empty profile.
-    """
+    yfinance 遇到 HTTP 429 时抛出 YFRateLimitError，却不会自行重试。
+    若重试耗尽或出现其他调用异常，则抛出 VendorUnavailableError，
+    只表示提供商调用失败，不能推断标的情况。
+    若 Yahoo 明确没有该标的数据，返回 None。
+    ``func`` 应自行创建 Ticker 并请求，因为同一个 Ticker 会记住失败的
+    ``info`` 请求，再次读取该实例可能直接返回空概况。"""
     for attempt in range(max_retries + 1):
         try:
             return func()
