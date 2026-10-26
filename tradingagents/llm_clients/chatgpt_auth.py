@@ -1,12 +1,10 @@
-"""Sign in with ChatGPT, so a run uses the person's ChatGPT Plus or Pro plan.
+"""使用 ChatGPT 登录，让模型运行使用用户的 Plus/Pro 订阅。
 
-This follows OpenAI's documented flow for open-source apps ("Sign in with ChatGPT":
-developers.openai.com/siwc): dynamic client registration, PKCE, and a loopback
-redirect on 127.0.0.1. The sign-in, its tokens and this host's id live in one file
-under ~/.tradingagents, readable only by its owner. Access tokens last an hour and
-are refreshed under a lock shared by every thread and process, because each refresh
-rotates the refresh token and replaying a used one ends the sign-in.
-"""
+遵循 OpenAI 的开源应用登录流程：动态客户端注册、PKCE 和
+127.0.0.1 本地回调。凭据、token 和设备标识保存到
+~/.tradingagents 下仅所有者可读的文件。
+访问 token 有效期约一小时；刷新采用跨进程锁，避免重复使用
+已经轮换的 refresh token 导致登录失效。"""
 
 import base64
 import hashlib
@@ -50,14 +48,14 @@ _retry_after = 0.0            # no renewal attempt in this process before this t
 
 
 class ChatGPTAuthError(RuntimeError):
-    """Signing in or refreshing failed; the message says what to do."""
+    """登录或刷新失败时抛出的异常，消息中给出后续操作建议。"""
 
 
 class ChatGPTUnreachable(ChatGPTAuthError):
-    """OpenAI could not be reached or was busy; the sign-in itself is still good."""
+    """OpenAI 暂时不可达或繁忙，但原有登录状态可能仍有效。"""
 
 
-# --- the auth file -------------------------------------------------------------------
+# --- 鉴权文件 ---
 
 def _read() -> dict:
     try:
@@ -68,8 +66,9 @@ def _read() -> dict:
 
 
 def _write(data: dict) -> None:
-    """Write the auth file whole, readable only by its owner. Unlike a cache, a failed
-    write must surface: losing a rotated refresh token would end the sign-in."""
+    """以原子方式写入仅所有者可读的鉴权文件。
+    与普通缓存不同，保存失败必须报告，因为刷新 token 已轮换时
+    若没能保存新值，就可能导致整个登录失效。"""
     AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
     temp = AUTH_FILE.with_name(f"{AUTH_FILE.name}.{uuid.uuid4().hex}.tmp")
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -87,12 +86,12 @@ def _host_id(data: dict) -> str:
 
 
 def signed_in_as() -> str | None:
-    """The signed-in account's email, or None."""
+    """返回已登录账户的邮箱，否则返回 None。"""
     data = _read()
     return (data.get("account") or {}).get("email") if data.get("tokens") else None
 
 
-# --- tokens --------------------------------------------------------------------------
+# --- token 管理 ---
 
 def _b64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
@@ -103,8 +102,8 @@ def _b64url_decode(text: str) -> bytes:
 
 
 def _signing_keys() -> list[dict]:
-    """OpenAI's ID-token signing keys. Fetched before a token request, so nothing can fail
-    on the network between OpenAI issuing tokens and this file keeping them."""
+    """在 token 请求之前获取 OpenAI 的 ID Token 签名公钥，
+    避免在 token 签发与本地保存之间发生额外网络失败。"""
     try:
         keys = requests.get(JWKS_URL, timeout=TIMEOUT).json()["keys"]
     except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
@@ -114,8 +113,8 @@ def _signing_keys() -> list[dict]:
 
 
 def _validated_claims(id_token: str, client_id: str, nonce: str | None, keys: list[dict]) -> dict:
-    """The ID token's claims after checking its RS256 signature against OpenAI's keys,
-    issuer, audience, expiry and (at sign-in) nonce, as the sign-in guide requires."""
+    """校验 ID Token 的 RS256 签名、公钥、issuer、audience、有效期，
+    以及首次登录时的 nonce，然后返回声明信息。"""
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -165,8 +164,8 @@ def _oauth_error(response) -> str:
 
 
 def _token_request(form: dict, task: str, refused: str) -> dict:
-    """OpenAI's answer to a token request, or the error to show: ``ChatGPTUnreachable``
-    when OpenAI could not answer (try again), ``ChatGPTAuthError`` when it refused."""
+    """返回 OpenAI 的 token 响应，或根据失败原因抛出异常：
+    服务不可达使用 ``ChatGPTUnreachable``，明确拒绝则使用 ``ChatGPTAuthError``。"""
     try:
         response = requests.post(TOKEN_URL, timeout=TIMEOUT, data=form)
     except requests.RequestException as exc:
@@ -198,8 +197,8 @@ def _refresh(data: dict, now: float) -> dict:
 
 
 def _due(tokens: dict, now: float) -> bool:
-    """Whether to renew: under five minutes left, and OpenAI accepts a renewal by now
-    (``earliest_refresh_at``), unless the token has already run out."""
+    """判断是否应刷新：剩余有效期不足五分钟且到达
+    ``earliest_refresh_at``；已过期时必须刷新。"""
     expires = tokens.get("expires_at", 0)
     earliest = tokens.get("earliest_refresh_at")
     if now < expires - REFRESH_MARGIN:
@@ -208,12 +207,12 @@ def _due(tokens: dict, now: float) -> bool:
 
 
 def access_token(now: Callable[[], float] = time.time) -> str:
-    """A valid access token, renewed when it has under five minutes left.
+    """获取有效 access token，在过期前五分钟内自动刷新。
 
-    Renewal happens under a lock every thread and process shares, and starts from
-    the token on disk: another run may have renewed it already, and the refresh
-    token it rotated away must never be sent again. When OpenAI cannot be reached
-    or is busy, a token that still works is used and renewal is tried again a minute later."""
+    使用跨线程/进程锁，并从磁盘重新读取当前 token，防止另一个运行
+    已经刷新后重复提交过期的 refresh token。
+    若服务短暂不可达但旧 token 仍可用，则继续使用旧值，
+    一分钟后再尝试刷新。"""
     global _retry_after
     tokens = _read().get("tokens")
     if not tokens:
@@ -244,15 +243,15 @@ def access_token(now: Callable[[], float] = time.time) -> str:
 
 
 def credential() -> Callable[[], str]:
-    """The api_key callable for the chatgpt provider; raises now when nobody is signed in,
-    so a run stops before it starts rather than at its first model call."""
+    """返回 chatgpt 提供商获取动态凭据的 api_key 回调。
+    未登录时直接抛异常，在正式运行前失败，而非首次模型请求才报错。"""
     if not _read().get("tokens"):
         raise ChatGPTAuthError(LOGIN_HINT)
     return access_token
 
 
 def list_models() -> list[tuple[str, str]]:
-    """(name, model ID) for each model the signed-in plan offers, in OpenAI's order."""
+    """按 OpenAI 返回的顺序列出当前登录订阅支持的 (名称、模型 ID)。"""
     response = requests.get(f"{API_BASE}/models", timeout=10,
                             headers={"Authorization": f"Bearer {access_token()}"})
     response.raise_for_status()
@@ -263,10 +262,11 @@ def list_models() -> list[tuple[str, str]]:
     return [(m.get("display_name") or m["slug"], m["slug"]) for m in models]
 
 
-# --- signing in and out --------------------------------------------------------------
+# --- 登录与退出 ---
 
 class _Callback:
-    """The first answer carrying this attempt's ``state``; stray or stale requests are ignored."""
+    """只接受本次登录中第一个携带匹配 ``state`` 的回调，
+    其他过期或无关请求忽略。"""
 
     def __init__(self, state: str):
         self.state = state
@@ -305,7 +305,7 @@ def _listen(callback: _Callback, port: int) -> http.server.HTTPServer:
         server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     except OSError:
         server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
-    # A short poll interval lets the server stop promptly once the answer has arrived.
+    # 轮询间隔较短，服务端在收到响应后可以及时停止。
     threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
     return server
 
@@ -323,12 +323,13 @@ def _revoke(tokens: dict, client_id: str | None) -> bool:
 
 def sign_in(say: Callable[[str], None] = print, read_line: Callable[[], str] = input,
             timeout: float = 600, port: int = DEFAULT_PORT) -> str:
-    """Sign in with ChatGPT and save the result; returns the account's email.
+    """执行 ChatGPT 登录并保存结果，返回账户邮箱。
 
-    The address to open is printed. The browser comes back to 127.0.0.1; when this
-    machine is remote or in a container, paste the address the browser ends up on.
-    The pasted line is read in a thread that can outlive this call, so sign in as the
-    last prompt of a process (``tradingagents login chatgpt``)."""
+    输出浏览器需要打开的网址，回调目标为 127.0.0.1。
+    如果命令行在容器或远程机器上运行，可粘贴浏览器最终访问的地址。
+    粘贴地址的读取线程可能比该函数存活更久，
+    因此应将登录作为独立进程的最后一项交互
+    （``tradingagents login chatgpt``）。"""
     data = _read()
     host_id = _host_id(data)
     account = data.get("account") or {}
@@ -401,9 +402,9 @@ def sign_in(say: Callable[[str], None] = print, read_line: Callable[[], str] = i
 
 
 def sign_out() -> str | None:
-    """Revoke the sign-in at OpenAI and forget it, keeping only this host's id.
-    Returns None when nobody was signed in, "revoked", or "forgotten" when OpenAI
-    could not be reached to revoke it."""
+    """尝试在 OpenAI 撤销登录，并清理本地凭据，仅保留设备标识。
+    没有登录时返回 None；成功撤销时返回 "revoked"；
+    无法连接 OpenAI 撤销但本地已清理时返回 "forgotten"。"""
     if not _read().get("tokens"):
         return None
     with locked(AUTH_FILE):
