@@ -1,1 +1,1 @@
-"""Data vendors: one module or package per source, serving the router's methods."""
+"""数据提供商模块：每个数据源对应独立模块或包，为路由器提供具体方法。"""
