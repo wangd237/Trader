@@ -1,4 +1,4 @@
-"""Tests for TradingMemoryLog — storage, deferred reflection, PM injection, legacy removal."""
+"""TradingMemoryLog 回归测试：存储、延迟反思、向投资组合经理注入经验，以及移除旧机制。"""
 
 from unittest.mock import MagicMock, patch
 
@@ -28,7 +28,7 @@ DECISION_NO_RATING = (
 
 
 # ---------------------------------------------------------------------------
-# Shared helpers
+# 共用辅助函数
 # ---------------------------------------------------------------------------
 
 def make_log(tmp_path, filename="trading_memory.md"):
@@ -37,7 +37,7 @@ def make_log(tmp_path, filename="trading_memory.md"):
 
 
 def _seed_completed(tmp_path, ticker, date, decision_text, reflection_text, filename="trading_memory.md"):
-    """Write a completed entry directly to file, bypassing the API."""
+    """绕过 API，直接向文件写入一条已完成记录。"""
     entry = (
         f"[{date} | {ticker} | Buy | +1.0% | +0.5% | 5d]\n\n"
         f"DECISION:\n{decision_text}\n\n"
@@ -49,23 +49,22 @@ def _seed_completed(tmp_path, ticker, date, decision_text, reflection_text, file
 
 
 def _resolve_entry(log, ticker, date, decision, reflection="Good call."):
-    """Store a decision then immediately resolve it via the API."""
+    """先保存决策，再通过 API 立即结算。"""
     log.store_decision(ticker, date, decision)
     log.update_with_outcome(ticker, date, 0.05, 0.02, 5, reflection)
 
 
 def _price_df(prices, start="2026-01-05"):
-    """Minimal DataFrame matching yfinance .history() output shape.
+    """构造与 yfinance .history() 输出一致的最小 DataFrame。
 
-    Uses a DatetimeIndex like real yfinance output, so resolution-date
-    extraction (stock.index[holding_days]) works (#1251).
-    """
+    使用真实行情同样的 DatetimeIndex，保证结算日期提取
+    （stock.index[holding_days]）能够工作（#1251）。"""
     idx = pd.date_range(start=start, periods=len(prices), freq="D")
     return pd.DataFrame({"Close": prices}, index=idx)
 
 
 def _make_pm_state(past_context=""):
-    """Minimal AgentState dict for portfolio_manager_node."""
+    """构造供 portfolio_manager_node 使用的最小 AgentState 字典。"""
     return {
         "company_of_interest": "NVDA",
         "past_context": past_context,
@@ -89,9 +88,8 @@ def _make_pm_state(past_context=""):
 
 
 def _structured_pm_llm(captured: dict, decision: PortfolioDecision | None = None):
-    """Build a MagicMock LLM whose with_structured_output binding captures the
-    prompt and returns a real PortfolioDecision (so render_pm_decision works).
-    """
+    """构造 MagicMock LLM：结构化绑定时捕获 Prompt，
+    返回真实 PortfolioDecision，使 render_pm_decision 可以执行。"""
     if decision is None:
         decision = PortfolioDecision(
             rating=PortfolioRating.HOLD,
@@ -108,7 +106,7 @@ def _structured_pm_llm(captured: dict, decision: PortfolioDecision | None = None
 
 
 # ---------------------------------------------------------------------------
-# Core: storage and read path
+# 核心：存储和读取
 # ---------------------------------------------------------------------------
 
 class TestTradingMemoryLogCore:
@@ -129,19 +127,17 @@ class TestTradingMemoryLogCore:
         assert entries[1]["ticker"] == "AAPL"
 
     def test_store_decision_idempotent(self, tmp_path):
-        """Calling store_decision twice with same (ticker, date) stores only one entry."""
+        """对相同 (ticker, date) 重复调用 store_decision，只能保存一条。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", DECISION_BUY)
         log.store_decision("NVDA", "2026-01-10", DECISION_BUY)
         assert len(log.load_entries()) == 1
 
     def test_store_decision_idempotent_after_the_entry_resolves(self, tmp_path):
-        """A settled entry still blocks a duplicate.
+        """已结算记录也必须阻止重复写入。
 
-        The guard matched only pending entries, so re-running a ticker and date
-        whose outcome had already been settled appended a second entry: the same
-        decision counted twice in past context and in any aggregate over the log.
-        """
+        旧幂等判断只检查待结算记录；同一标的、同一日期结算完成后
+        再次运行，会把相同决策重新追加，导致历史经验和汇总统计重复计算。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", DECISION_BUY)
         log.update_with_outcome("NVDA", "2026-01-10", 0.05, 0.02, 5, "worked", "2026-01-17")
@@ -153,7 +149,7 @@ class TestTradingMemoryLogCore:
         assert entries[0]["pending"] is False  # the settled record is kept, not replaced
 
     def test_batch_update_resolves_multiple_entries(self, tmp_path):
-        """batch_update_with_outcomes resolves multiple pending entries in one write."""
+        """batch_update_with_outcomes 在一次写入中结算多条待处理记录。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-05", DECISION_BUY)
         log.store_decision("NVDA", "2026-01-12", DECISION_SELL)
@@ -180,7 +176,7 @@ class TestTradingMemoryLogCore:
         text = (tmp_path / "trading_memory.md").read_text(encoding="utf-8")
         assert "[2026-01-10 | NVDA | Buy | pending]" in text
 
-    # Rating parsing
+    # 评级解析
 
     def test_rating_parsed_buy(self, tmp_path):
         log = make_log(tmp_path)
@@ -193,8 +189,8 @@ class TestTradingMemoryLogCore:
         assert log.load_entries()[0]["rating"] == "Overweight"
 
     def test_an_unreadable_decision_is_tagged_for_review(self, tmp_path):
-        """Not a Hold: a fabricated rating is quoted back to the next run as a
-        call that was never made, and counted in the backtest figures."""
+        """不能默认 Hold：虚构评级会被下一次运行当作真实历史选择，
+        并进入回测统计。"""
         from tradingagents.agents.rating import RATING_REVIEW
 
         log = make_log(tmp_path)
@@ -202,7 +198,7 @@ class TestTradingMemoryLogCore:
         assert log.load_entries()[0]["rating"] == RATING_REVIEW
 
     def test_rating_priority_over_prose(self, tmp_path):
-        """'Rating: X' label wins even when an opposing rating word appears earlier in prose."""
+        """即使正文前面出现相反评级词，也应以明确的 'Rating: X' 标签为准。"""
         decision = (
             "The sell thesis is weak. The hold case is marginal.\n\n"
             "Rating: Buy\n\n"
@@ -212,10 +208,10 @@ class TestTradingMemoryLogCore:
         log.store_decision("NVDA", "2026-01-10", decision)
         assert log.load_entries()[0]["rating"] == "Buy"
 
-    # Delimiter robustness
+    # 记录分隔符健壮性
 
     def test_decision_with_markdown_separator(self, tmp_path):
-        """LLM decision containing '---' must not corrupt the entry."""
+        """LLM 决策文本包含 '---' 时不能破坏记录分隔结构。"""
         decision = "Rating: Buy\n\n---\n\nRisk: elevated volatility."
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", decision)
@@ -223,7 +219,7 @@ class TestTradingMemoryLogCore:
         assert len(entries) == 1
         assert "Risk: elevated volatility" in entries[0]["decision"]
 
-    # load_entries
+    # 加载日志记录
 
     def test_load_entries_empty_file(self, tmp_path):
         log = make_log(tmp_path)
@@ -255,7 +251,7 @@ class TestTradingMemoryLogCore:
         log.store_decision("NVDA", "2026-01-10", DECISION_BUY)
         assert log.load_entries()[0]["decision"] == DECISION_BUY.strip()
 
-    # get_pending_entries
+    # 获取待结算记录
 
     def test_get_pending_returns_pending_only(self, tmp_path):
         log = make_log(tmp_path)
@@ -266,7 +262,7 @@ class TestTradingMemoryLogCore:
         assert pending[0]["ticker"] == "NVDA"
         assert pending[0]["date"] == "2026-01-10"
 
-    # get_past_context
+    # 读取历史经验上下文
 
     def test_get_past_context_empty(self, tmp_path):
         log = make_log(tmp_path)
@@ -292,7 +288,7 @@ class TestTradingMemoryLogCore:
         assert "Past analyses of NVDA" not in ctx
 
     def test_n_same_limit_respected(self, tmp_path):
-        """Only the n_same most recent same-ticker entries are included."""
+        """相同 ticker 只注入最近 n_same 条经验。"""
         log = make_log(tmp_path)
         for i in range(6):
             _seed_completed(tmp_path, "NVDA", f"2026-01-{i+1:02d}", f"Buy entry {i}.", "Correct.")
@@ -301,7 +297,7 @@ class TestTradingMemoryLogCore:
         assert "Buy entry 5" in ctx
 
     def test_n_cross_limit_respected(self, tmp_path):
-        """Only the n_cross most recent cross-ticker entries are included."""
+        """其他 ticker 只注入最近 n_cross 条经验。"""
         log = make_log(tmp_path)
         for i, ticker in enumerate(["AAPL", "MSFT", "GOOG", "META"]):
             _seed_completed(tmp_path, ticker, f"2026-01-{i+1:02d}", f"Buy {ticker}.", "Correct.")
@@ -309,7 +305,7 @@ class TestTradingMemoryLogCore:
         assert "AAPL" not in ctx
         assert "META" in ctx
 
-    # No-op when config is None
+    # 配置为 None 时不做任何处理
 
     def test_no_log_path_is_noop(self):
         log = TradingMemoryLog(config=None)
@@ -317,42 +313,42 @@ class TestTradingMemoryLogCore:
         assert log.load_entries() == []
         assert log.get_past_context("NVDA") == ""
 
-    # Rotation: opt-in cap on resolved entries
+    # 轮转清理：已结算记录数量上限为可选配置
 
     def test_rotation_disabled_by_default(self, tmp_path):
-        """Without max_entries, all resolved entries are kept."""
+        """没有设置 max_entries 时保留全部已结算记录。"""
         log = make_log(tmp_path)
         for i in range(7):
             _resolve_entry(log, "NVDA", f"2026-01-{i+1:02d}", DECISION_BUY, f"Lesson {i}.")
         assert len(log.load_entries()) == 7
 
     def test_rotation_prunes_oldest_resolved(self, tmp_path):
-        """When max_entries is set and exceeded, oldest resolved entries are pruned."""
+        """设置 max_entries 并超过上限时删除最早的已结算记录。"""
         log = TradingMemoryLog({
             "memory_log_path": str(tmp_path / "trading_memory.md"),
             "memory_log_max_entries": 3,
         })
-        # Resolve 5 entries; rotation should keep only the 3 most recent.
+        # 结算五条记录后，轮转应保留最近三条。
         for i in range(5):
             _resolve_entry(log, "NVDA", f"2026-01-{i+1:02d}", DECISION_BUY, f"Lesson {i}.")
         entries = log.load_entries()
         assert len(entries) == 3
-        # Confirm the OLDEST were dropped, not the newest.
+        # 确认删除的是最旧记录，而非最新记录。
         dates = [e["date"] for e in entries]
         assert dates == ["2026-01-03", "2026-01-04", "2026-01-05"]
 
     def test_rotation_never_prunes_pending(self, tmp_path):
-        """Pending entries (unresolved) are kept regardless of the cap."""
+        """待结算记录不受数量上限影响，必须始终保留。"""
         log = TradingMemoryLog({
             "memory_log_path": str(tmp_path / "trading_memory.md"),
             "memory_log_max_entries": 2,
         })
-        # 3 resolved + 2 pending. With cap=2, only 2 resolved survive; both pending stay.
+        # 三条已结算、两条待结算：上限为二时仅保留两条已结算，待结算全部保留。
         for i in range(3):
             _resolve_entry(log, "NVDA", f"2026-01-{i+1:02d}", DECISION_BUY, f"Resolved {i}.")
         log.store_decision("NVDA", "2026-02-01", DECISION_BUY)
         log.store_decision("NVDA", "2026-02-02", DECISION_OVERWEIGHT)
-        # Trigger rotation by resolving one more entry — pending entries must stay.
+        # 再结算一条以触发轮转，待结算记录仍必须保留。
         _resolve_entry(log, "NVDA", "2026-01-04", DECISION_BUY, "Resolved 3.")
         entries = log.load_entries()
         pending = [e for e in entries if e["pending"]]
@@ -361,7 +357,7 @@ class TestTradingMemoryLogCore:
         assert len(resolved) == 2, f"expected 2 resolved after rotation, got {len(resolved)}"
 
     def test_rotation_under_cap_is_noop(self, tmp_path):
-        """No rotation when resolved count <= max_entries."""
+        """已结算记录数不超过 max_entries 时不执行轮转清理。"""
         log = TradingMemoryLog({
             "memory_log_path": str(tmp_path / "trading_memory.md"),
             "memory_log_max_entries": 10,
@@ -370,24 +366,24 @@ class TestTradingMemoryLogCore:
             _resolve_entry(log, "NVDA", f"2026-01-{i+1:02d}", DECISION_BUY, f"Lesson {i}.")
         assert len(log.load_entries()) == 3
 
-    # Rating parsing: markdown bold and numbered list formats
+    # 评级解析：Markdown 加粗与编号列表格式
 
     def test_rating_parsed_from_bold_markdown(self, tmp_path):
-        """**Rating**: Buy — markdown bold around the label must not prevent parsing."""
+        """**Rating**: Buy 中标签的 Markdown 加粗不能妨碍解析。"""
         decision = "**Rating**: Buy\nEnter at $190."
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", decision)
         assert log.load_entries()[0]["rating"] == "Buy"
 
     def test_rating_parsed_from_bold_value(self, tmp_path):
-        """Rating: **Sell** — markdown bold around the value must not prevent parsing."""
+        """Rating: **Sell** 中评级值加粗也必须可解析。"""
         decision = "Rating: **Sell**\nExit immediately."
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", decision)
         assert log.load_entries()[0]["rating"] == "Sell"
 
     def test_rating_label_wins_over_prose_with_markdown(self, tmp_path):
-        """Rating: **Sell** must win even when prose contains a conflicting rating word."""
+        """即使正文出现冲突评级词，明确的 Rating: **Sell** 仍应优先。"""
         decision = (
             "The buy thesis is weakened by guidance.\n"
             "Rating: **Sell**\n"
@@ -398,7 +394,7 @@ class TestTradingMemoryLogCore:
         assert log.load_entries()[0]["rating"] == "Sell"
 
     def test_rating_parsed_from_numbered_list(self, tmp_path):
-        """1. Rating: Buy — numbered list prefix must not prevent parsing."""
+        """带编号前缀的 1. Rating: Buy 也必须可解析。"""
         decision = "1. Rating: Buy\nEnter at $190."
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", decision)
@@ -406,12 +402,12 @@ class TestTradingMemoryLogCore:
 
 
 # ---------------------------------------------------------------------------
-# Deferred reflection: update_with_outcome, Reflector, fetch_returns
+# 延迟反思：结果写入、反思与收益计算
 # ---------------------------------------------------------------------------
 
 class TestDeferredReflection:
 
-    # update_with_outcome
+    # 写入单条决策结果
 
     def test_update_replaces_pending_tag(self, tmp_path):
         log = make_log(tmp_path)
@@ -435,7 +431,7 @@ class TestDeferredReflection:
         assert e["decision"] == DECISION_BUY.strip()
 
     def test_update_preserves_other_entries(self, tmp_path):
-        """Only the matching entry is modified; all other entries remain unchanged."""
+        """只修改匹配的记录，其余记录保持原样。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", DECISION_BUY)
         log.store_decision("AAPL", "2026-01-11", "Rating: Hold\nHold AAPL.")
@@ -450,7 +446,7 @@ class TestDeferredReflection:
         assert msft["ticker"] == "MSFT" and msft["pending"] is True
 
     def test_update_atomic_write(self, tmp_path):
-        """A pre-existing .tmp file is overwritten; the log is correctly updated."""
+        """存在旧 .tmp 文件时可覆盖它并正确更新日志。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", DECISION_BUY)
         stale_tmp = tmp_path / "trading_memory.tmp"
@@ -467,7 +463,7 @@ class TestDeferredReflection:
         log.update_with_outcome("NVDA", "2026-01-10", 0.05, 0.02, 5, "Reflection")
 
     def test_formatting_roundtrip_after_update(self, tmp_path):
-        """All fields intact and blank line between tag and DECISION preserved after update."""
+        """更新后所有字段保持完整，标记行与 DECISION 之间的空行也保留。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-10", DECISION_BUY)
         log.update_with_outcome("NVDA", "2026-01-10", 0.042, 0.021, 5, "Momentum confirmed.")
@@ -483,7 +479,7 @@ class TestDeferredReflection:
         raw_text = (tmp_path / "trading_memory.md").read_text(encoding="utf-8")
         assert "[2026-01-10 | NVDA | Buy | +4.2% | +2.1% | 5d]\n\nDECISION:" in raw_text
 
-    # Reflector.reflect_on_final_decision
+    # 调用最终决策反思
 
     def test_reflect_on_final_decision_returns_llm_output(self):
         mock_llm = MagicMock()
@@ -496,7 +492,7 @@ class TestDeferredReflection:
         mock_llm.invoke.assert_called_once()
 
     def test_reflect_on_final_decision_includes_returns_in_prompt(self):
-        """Return figures are present in the human message sent to the LLM."""
+        """发送给 LLM 的用户消息必须包含实际收益数字。"""
         mock_llm = MagicMock()
         mock_llm.invoke.return_value.content = "Incorrect call."
         reflector = Reflector(mock_llm)
@@ -509,7 +505,7 @@ class TestDeferredReflection:
         assert "-5.0%" in human_content
         assert "Exit position immediately." in human_content
 
-    # settlement.fetch_returns
+    # 获取持仓窗口收益
 
     def test_fetch_returns_valid_ticker(self):
         stock_prices = [100.0, 102.0, 104.0, 103.0, 105.0, 106.0, 107.0]
@@ -524,11 +520,11 @@ class TestDeferredReflection:
         assert raw is not None and alpha is not None and days is not None
         assert isinstance(raw, float) and isinstance(alpha, float) and isinstance(days, int)
         assert days == 5
-        # resolution date = the bar `days` sessions after entry, the first close after the decision (#1251)
+        # 结算日期为入场后第 `days` 个交易时段的收盘日期（#1251）。
         assert resolved == "2026-01-11"
 
     def test_fetch_returns_too_recent(self):
-        """Only 1 data point available → returns all-None, no crash."""
+        """只有一个数据点时返回全 None，不能崩溃。"""
         with patch("yfinance.Ticker") as mock_ticker_cls:
             m = MagicMock()
             m.history.return_value = _price_df([100.0])
@@ -537,7 +533,7 @@ class TestDeferredReflection:
         assert (raw, alpha, days, resolved) == (None, None, None, None)
 
     def test_fetch_returns_delisted(self):
-        """Empty DataFrame → returns all-None, no crash."""
+        """空 DataFrame 返回全 None，不能崩溃。"""
         with patch("yfinance.Ticker") as mock_ticker_cls:
             m = MagicMock()
             m.history.return_value = pd.DataFrame({"Close": []})
@@ -546,8 +542,8 @@ class TestDeferredReflection:
         assert (raw, alpha, days, resolved) == (None, None, None, None)
 
     def test_fetch_returns_spy_shorter_than_stock(self):
-        """SPY having fewer rows than the stock (but still a full window) must
-        not raise IndexError."""
+        """SPY 数据行少于股票，但仍覆盖完整观察窗口时，
+        不能发生 IndexError。"""
         stock_prices = [100.0, 102.0, 104.0, 103.0, 105.0, 106.0, 107.0, 108.0]  # 8 rows
         spy_prices   = [400.0, 402.0, 403.0, 405.0, 406.0, 407.0, 408.0]         # 7 rows
         with patch("yfinance.Ticker") as mock_ticker_cls:
@@ -562,8 +558,8 @@ class TestDeferredReflection:
         assert resolved == "2026-01-11"
 
     def test_a_decision_is_scored_from_the_first_close_after_its_date(self):
-        """#1518: news published after the close on the decision date reaches the
-        analysts, so the close of that date is not a price they could have traded at."""
+        """#1518：分析日收盘后发布的新闻也会进入分析师上下文，
+        因此不能假定用户能够按当日收盘价成交。"""
         stock_prices = [100.0, 150.0, 150.0, 150.0, 150.0, 150.0, 165.0]   # jumps on the next close
         spy_prices   = [400.0] * 7
         with patch("yfinance.Ticker") as mock_ticker_cls:
@@ -577,9 +573,8 @@ class TestDeferredReflection:
         assert resolved == "2026-01-11"
 
     def test_fetch_returns_incomplete_window_stays_pending(self):
-        """#1169: a rerun before the full holding window has traded returns
-        unavailable (all-None) so the entry stays pending, rather than settling
-        on a premature partial return."""
+        """#1169：完整持仓窗口尚未交易结束时重新运行，
+        应返回全 None 并保持待结算，不能提前使用部分收益率。"""
         stock_prices = [100.0, 102.0, 104.0]  # only 3 rows; holding window is 5
         spy_prices   = [400.0, 402.0, 404.0]
         with patch("yfinance.Ticker") as mock_ticker_cls:
@@ -591,10 +586,10 @@ class TestDeferredReflection:
             result = settlement.fetch_returns("NVDA", "2026-01-05")
         assert result == (None, None, None, None)
 
-    # settlement.resolve_benchmark picks the index for the alpha calculation
+    # settlement.resolve_benchmark 为 Alpha 计算选择基准指数。
 
     def test_resolve_benchmark_explicit_override(self):
-        """config['benchmark_ticker'] wins for every ticker."""
+        """config['benchmark_ticker'] 的显式配置对全部 ticker 优先。"""
         config = {
             "benchmark_ticker": "QQQ",
             "benchmark_map": {"": "SPY", ".T": "^N225"},
@@ -603,7 +598,7 @@ class TestDeferredReflection:
         assert settlement.resolve_benchmark("NVDA", config) == "QQQ"
 
     def test_resolve_benchmark_suffix_map(self):
-        """Known suffixes route to their regional index."""
+        """已知交易所后缀对应各自的地区基准指数。"""
         config = {
             "benchmark_ticker": None,
             "benchmark_map": {
@@ -618,24 +613,24 @@ class TestDeferredReflection:
         assert settlement.resolve_benchmark("AZN.L", config) == "^FTSE"
 
     def test_explicit_benchmark_is_resolved_like_any_other_symbol(self):
-        """A configured benchmark takes the same alias mapping as the ticker, or
-        the return lookup finds nothing and the decision never settles."""
+        """自定义基准也需与 ticker 使用相同别名映射，
+        否则收益查询可能找不到价格，使决策无法结算。"""
         config = {"benchmark_ticker": "SPX500", "benchmark_map": {"": "SPY"}}
         assert settlement.resolve_benchmark("NVDA", config) == "^GSPC"
 
     def test_resolve_benchmark_china_a_shares(self):
-        """A-share tickers route to their exchange composite (uses the real
-        default benchmark_map, since A-share support relies on it)."""
+        """A 股 ticker 应映射到所在交易所综合指数；
+        测试使用真实 benchmark_map 默认配置。"""
         from tradingagents.default_config import DEFAULT_CONFIG
         config = {"benchmark_ticker": None,
                              "benchmark_map": DEFAULT_CONFIG["benchmark_map"]}
         assert settlement.resolve_benchmark("600519.SS", config) == "000001.SS"
         assert settlement.resolve_benchmark("000001.SZ", config) == "399001.SZ"
-        # .SH is the exchange's own suffix; Yahoo spells Shanghai .SS (#1260)
+        # 交易所自身使用 .SH，而 Yahoo 的上海代码后缀是 .SS（#1260）。
         assert settlement.resolve_benchmark("600519.SH", config) == "000001.SS"
 
     def test_resolve_benchmark_brazil(self):
-        """B3 tickers were measured against SPY."""
+        """B3 市场标的不应再错误地对标 SPY。"""
         from tradingagents.default_config import DEFAULT_CONFIG
         config = {"benchmark_ticker": None,
                              "benchmark_map": DEFAULT_CONFIG["benchmark_map"]}
@@ -646,13 +641,13 @@ class TestDeferredReflection:
         ("MC.PA", "^FCHI"), ("ASML.AS", "^AEX"), ("NESN.SW", "^SSMI"), ("ENI.MI", "FTSEMIB.MI"),
     ])
     def test_resolve_benchmark_regional_indexes(self, ticker, index):
-        """Taiwan, Korea, Singapore and the main European exchanges were measured against SPY."""
+        """台湾、韩国、新加坡和主要欧洲交易所不应统一错误地使用 SPY。"""
         from tradingagents.default_config import DEFAULT_CONFIG
         config = {"benchmark_ticker": None, "benchmark_map": DEFAULT_CONFIG["benchmark_map"]}
         assert settlement.resolve_benchmark(ticker, config) == index
 
     def test_resolve_benchmark_us_ticker_defaults_to_spy(self):
-        """US tickers (no dotted suffix) take the empty-suffix entry."""
+        """无点号交易所后缀的美股使用空后缀默认基准。"""
         config = {
             "benchmark_ticker": None,
             "benchmark_map": {"": "SPY", ".T": "^N225"},
@@ -661,7 +656,7 @@ class TestDeferredReflection:
         assert settlement.resolve_benchmark("AAPL", config) == "SPY"
 
     def test_resolve_benchmark_unknown_suffix_falls_back(self):
-        """Unrecognised suffix (BRK.B, FAKE.XX) falls back to SPY."""
+        """无法识别的后缀（如 BRK.B、FAKE.XX）回退到 SPY。"""
         config = {
             "benchmark_ticker": None,
             "benchmark_map": {"": "SPY", ".T": "^N225"},
@@ -670,7 +665,7 @@ class TestDeferredReflection:
         assert settlement.resolve_benchmark("BRK.B", config) == "SPY"
 
     def test_resolve_benchmark_case_insensitive(self):
-        """Suffix matching is case-insensitive so 7203.t resolves like 7203.T."""
+        """后缀匹配不区分大小写，7203.t 与 7203.T 应一致。"""
         config = {
             "benchmark_ticker": None,
             "benchmark_map": {".T": "^N225", "": "SPY"},
@@ -678,7 +673,7 @@ class TestDeferredReflection:
         assert settlement.resolve_benchmark("7203.t", config) == "^N225"
 
     def test_reflector_includes_benchmark_in_label(self):
-        """benchmark_name appears in the prompt label, not 'SPY' hardcoded."""
+        """Prompt 标签应显示 benchmark_name，而不是写死 SPY。"""
         mock_llm = MagicMock()
         mock_llm.invoke.return_value.content = "Directionally correct."
         reflector = Reflector(mock_llm)
@@ -694,7 +689,7 @@ class TestDeferredReflection:
         assert "Alpha vs SPY:" not in human_content
 
     def test_reflector_defaults_to_spy_for_unupdated_callers(self):
-        """Default benchmark_name keeps the SPY label for legacy callers."""
+        """未指定 benchmark_name 时为旧调用者保持 SPY 默认标签。"""
         mock_llm = MagicMock()
         mock_llm.invoke.return_value.content = "ok"
         reflector = Reflector(mock_llm)
@@ -707,10 +702,10 @@ class TestDeferredReflection:
         human_content = next(content for role, content in messages if role == "human")
         assert "Alpha vs SPY:" in human_content
 
-    # settlement.settle_pending
+    # 结算待处理决策
 
     def test_resolve_skips_other_tickers(self, tmp_path):
-        """Pending AAPL entry is not resolved when the run is for NVDA."""
+        """分析 NVDA 时不应结算待处理的 AAPL 记录。"""
         log = make_log(tmp_path)
         log.store_decision("AAPL", "2026-01-10", DECISION_BUY)
         with patch.object(settlement, "fetch_returns", return_value=(0.05, 0.02, 5, "2026-01-12")) as fetch:
@@ -719,7 +714,7 @@ class TestDeferredReflection:
         assert len(log.get_pending_entries()) == 1
 
     def test_resolve_marks_entry_completed(self, tmp_path):
-        """After resolve, get_pending_entries() is empty and the entry has a REFLECTION."""
+        """成功结算后 get_pending_entries() 为空，记录包含 REFLECTION。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-05", DECISION_BUY)
         reflector = MagicMock()
@@ -735,8 +730,8 @@ class TestDeferredReflection:
         assert "+2.0%" in entries[0]["alpha"]
 
     def test_resolve_leaves_premature_entry_pending(self, tmp_path):
-        """#1169: when the outcome can't be settled yet (fetch_returns None),
-        the entry stays pending and the reflector is never called."""
+        """#1169：fetch_returns 仍为 None 时不执行反思，
+        记录保持待结算状态。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-05", DECISION_BUY)
         reflector = MagicMock()
@@ -747,12 +742,12 @@ class TestDeferredReflection:
 
 
 # ---------------------------------------------------------------------------
-# Portfolio Manager injection: past_context in state and prompt
+# 向投资组合经理注入历史上下文
 # ---------------------------------------------------------------------------
 
 class TestPortfolioManagerInjection:
 
-    # past_context in initial state
+    # 在初始状态注入 past_context
 
     def test_past_context_in_initial_state(self):
         propagator = Propagator()
@@ -765,7 +760,7 @@ class TestPortfolioManagerInjection:
         state = propagator.create_initial_state("NVDA", "2026-01-10")
         assert state["past_context"] == ""
 
-    # PM prompt
+    # 投资组合经理的 Prompt
 
     def test_pm_prompt_includes_past_context(self):
         captured = {}
@@ -777,7 +772,7 @@ class TestPortfolioManagerInjection:
         assert "Great call." in captured["prompt"]
 
     def test_pm_no_past_context_no_section(self):
-        """PM prompt omits the lessons section entirely when past_context is empty."""
+        """past_context 为空时，投资组合经理的 Prompt 完全省略经验章节。"""
         captured = {}
         llm = _structured_pm_llm(captured)
         pm_node = create_portfolio_manager(llm)
@@ -786,9 +781,8 @@ class TestPortfolioManagerInjection:
         assert "Lessons from prior decisions" not in captured["prompt"]
 
     def test_pm_returns_rendered_markdown_with_rating(self):
-        """The structured PortfolioDecision is rendered to markdown that
-        downstream consumers (memory log, signal processor, CLI display)
-        can parse without any extra LLM call."""
+        """结构化 PortfolioDecision 渲染为 Markdown，
+        让 Memory Log、信号处理器及 CLI 无需额外模型调用就能解析。"""
         captured = {}
         decision = PortfolioDecision(
             rating=PortfolioRating.OVERWEIGHT,
@@ -808,9 +802,8 @@ class TestPortfolioManagerInjection:
         assert "**Time Horizon**: 3-6 months" in md
 
     def test_pm_falls_back_to_freetext_when_structured_unavailable(self):
-        """If a provider does not support with_structured_output, the agent
-        falls back to a plain invoke and returns whatever prose the model
-        produced, so the pipeline never blocks."""
+        """提供商不支持 with_structured_output 时，
+        Agent 应回退到普通 invoke，并返回模型原始文本，不能阻塞流程。"""
         plain_response = "**Rating**: Sell\n\nExit ahead of guidance."
         llm = MagicMock()
         llm.with_structured_output.side_effect = NotImplementedError("provider unsupported")
@@ -819,10 +812,10 @@ class TestPortfolioManagerInjection:
         result = pm_node(_make_pm_state())
         assert result["final_trade_decision"] == plain_response
 
-    # get_past_context ordering and limits
+    # get_past_context 的排序和数量限制
 
     def test_same_ticker_prioritised(self, tmp_path):
-        """Same-ticker entries in same-ticker section; cross-ticker entries in cross-ticker section."""
+        """相同 ticker 的经验放在同标的章节，其他 ticker 放在跨标的章节。"""
         log = make_log(tmp_path)
         _resolve_entry(log, "NVDA", "2026-01-05", DECISION_BUY, "Momentum confirmed.")
         _resolve_entry(log, "AAPL", "2026-01-06", DECISION_SELL, "Overvalued.")
@@ -834,7 +827,7 @@ class TestPortfolioManagerInjection:
         assert "AAPL" in cross_block
 
     def test_cross_ticker_reflection_only(self, tmp_path):
-        """Cross-ticker entries show only the REFLECTION text, not the full DECISION."""
+        """跨 ticker 经验只展示 REFLECTION，不展示完整 DECISION。"""
         log = make_log(tmp_path)
         _resolve_entry(log, "AAPL", "2026-01-06", DECISION_SELL, "Overvalued correction.")
         result = log.get_past_context("NVDA")
@@ -842,7 +835,7 @@ class TestPortfolioManagerInjection:
         assert "Exit position immediately." not in result
 
     def test_n_same_limit_respected(self, tmp_path):
-        """More than 5 same-ticker completed entries → only 5 injected."""
+        """超过五条的同标的已结算记录只注入最近五条。"""
         log = make_log(tmp_path)
         for i in range(7):
             _resolve_entry(log, "NVDA", f"2026-01-{i+1:02d}", DECISION_BUY, f"Lesson {i}.")
@@ -851,7 +844,7 @@ class TestPortfolioManagerInjection:
         assert lessons_present == 5
 
     def test_n_cross_limit_respected(self, tmp_path):
-        """More than 3 cross-ticker completed entries → only 3 injected."""
+        """超过三条的跨标的已结算记录只注入最近三条。"""
         log = make_log(tmp_path)
         tickers = ["AAPL", "MSFT", "TSLA", "AMZN", "GOOG"]
         for i, ticker in enumerate(tickers):
@@ -860,10 +853,10 @@ class TestPortfolioManagerInjection:
         cross_count = sum(result.count(f"{t} lesson.") for t in tickers)
         assert cross_count == 3
 
-    # Full A→B→C integration cycle
+    # 完整 A→B→C 集成链路
 
     def test_full_cycle_store_resolve_inject(self, tmp_path):
-        """store pending → resolve with outcome → past_context non-empty for PM."""
+        """完整流程：保存待结算记录 → 根据结果结算 → PM 得到非空历史经验。"""
         log = make_log(tmp_path)
         log.store_decision("NVDA", "2026-01-05", DECISION_BUY)
         assert len(log.get_pending_entries()) == 1
@@ -879,34 +872,34 @@ class TestPortfolioManagerInjection:
 
 
 # ---------------------------------------------------------------------------
-# Legacy removal: BM25 / FinancialSituationMemory fully gone
+# 完全移除旧版 BM25 / FinancialSituationMemory
 # ---------------------------------------------------------------------------
 
 class TestLegacyRemoval:
 
     def test_financial_situation_memory_removed(self):
-        """FinancialSituationMemory must not be importable from the memory module."""
+        """memory 模块不应再导出 FinancialSituationMemory。"""
         import tradingagents.memory as m
         assert not hasattr(m, "FinancialSituationMemory")
 
     def test_bm25_not_imported(self):
-        """rank_bm25 must not be present in the memory module namespace."""
+        """memory 模块命名空间中不应再包含 rank_bm25。"""
         import tradingagents.memory as m
         assert not hasattr(m, "BM25Okapi")
 
     def test_reflect_and_remember_removed(self):
-        """TradingAgentsGraph must not expose reflect_and_remember."""
+        """TradingAgentsGraph 不应继续暴露 reflect_and_remember。"""
         assert not hasattr(TradingAgentsGraph, "reflect_and_remember")
 
     def test_portfolio_manager_no_memory_param(self):
-        """create_portfolio_manager accepts only llm; passing memory= raises TypeError."""
+        """create_portfolio_manager 只接收 llm；传入 memory= 应抛出 TypeError。"""
         mock_llm = MagicMock()
         create_portfolio_manager(mock_llm)
         with pytest.raises(TypeError):
             create_portfolio_manager(mock_llm, memory=MagicMock())
 
     def test_full_pipeline_no_regression(self, tmp_path):
-        """propagate() completes and stores the decision after the redesign."""
+        """重设计后 propagate() 完成运行并正确保存决策。"""
         import functools
 
         fake_state = {
@@ -938,8 +931,8 @@ class TestLegacyRemoval:
         mock_graph.graph.invoke.return_value = fake_state
         mock_graph.propagator.create_initial_state.return_value = fake_state
         mock_graph.propagator.get_graph_args.return_value = {}
-        # Bind the real _run_graph so propagate's call to self._run_graph executes
-        # the actual write path instead of the auto-MagicMock.
+        # 绑定真实 _run_graph，使 propagate 调用该方法时执行实际写入，
+        # 而不是使用 MagicMock 自动生成的替代方法。
         mock_graph._run_graph = functools.partial(
             TradingAgentsGraph._run_graph, mock_graph
         )
@@ -955,8 +948,8 @@ class TestLegacyRemoval:
 
 @pytest.mark.unit
 def test_a_failed_reflection_leaves_the_entry_pending_and_lets_the_run_start(tmp_path, monkeypatch):
-    """Settling past decisions happens on the way into a new run, and reflection
-    calls an LLM. A transient failure there must not stop the new analysis."""
+    """新运行开始时会结算历史决策，反思需要调用 LLM；
+    如果该调用短暂失败，不应终止本次新分析。"""
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.memory import TradingMemoryLog
 
@@ -988,8 +981,7 @@ def test_a_failed_reflection_leaves_the_entry_pending_and_lets_the_run_start(tmp
 
 @pytest.mark.unit
 def test_the_holding_window_is_configurable(tmp_path, monkeypatch):
-    """A decision written for months should not be graded at a week without the
-    operator choosing that window."""
+    """设计为数月的决策不应在未经用户指定时用一周结果评分。"""
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     from tradingagents.memory import TradingMemoryLog
 
@@ -1015,8 +1007,8 @@ def test_the_holding_window_is_configurable(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_the_reflection_states_the_window_it_judges():
-    """Judging a months-long thesis on a week's alpha, without saying so, turns
-    a scope mismatch into a lesson that the call was wrong."""
+    """没有说明观察窗口就用一周 Alpha 判断长期论点，
+    会把期限不匹配误写成决策失败的经验。"""
     from tradingagents.memory.reflection import Reflector
 
     prompt = Reflector(None)._system_prompt(holding_days=5)
@@ -1025,8 +1017,8 @@ def test_the_reflection_states_the_window_it_judges():
 
 @pytest.mark.unit
 def test_a_longer_window_asks_for_enough_price_history(monkeypatch):
-    """Trading days are not calendar days: a 21-day window needs about a month
-    of bars, and asking for 28 days left every outcome unsettled."""
+    """交易日不是自然日：21 个交易日大约需要一个月行情，
+    若只请求 28 个自然日可能使全部结果无法结算。"""
     asked = {}
 
     class _Ticker:
@@ -1048,7 +1040,7 @@ def test_a_longer_window_asks_for_enough_price_history(monkeypatch):
 
 @pytest.mark.unit
 def test_concurrent_writers_keep_every_decision_and_outcome(tmp_path):
-    """Graphs sharing one log record and settle at the same time; none may lose another's write."""
+    """多个 Graph 同时使用同一日志写入和结算时，不得丢失任何写入。"""
     import threading
 
     path = tmp_path / "memory.md"
@@ -1078,7 +1070,7 @@ def test_concurrent_writers_keep_every_decision_and_outcome(tmp_path):
 
 
 def _closes(by_symbol):
-    """A get_closes stand-in serving each symbol's series between the dates asked."""
+    """模拟 get_closes，按各 ticker 和请求日期范围返回价格序列。"""
     def get_closes(symbol, start_date, end_date):
         series = by_symbol[symbol]
         return series[(series.index >= start_date) & (series.index < end_date)]
@@ -1087,7 +1079,7 @@ def _closes(by_symbol):
 
 @pytest.mark.unit
 class TestSettlementWindow:
-    """Stock and benchmark are measured over the same dates, whatever their calendars."""
+    """不论各自交易日历如何，股票和基准都需要使用一致的比较日期。"""
 
     def test_a_seven_day_market_is_scored_against_the_benchmark_over_the_same_dates(self, monkeypatch):
         coin = pd.Series([100.0 + i for i in range(10)], index=pd.date_range("2026-01-03", periods=10, freq="D"))
@@ -1097,14 +1089,15 @@ class TestSettlementWindow:
 
         raw, alpha, days, resolved = settlement.fetch_returns("BTC-USD", "2026-01-03", 5, "SPY")
 
-        # Decided Sat 3, the coin is held Sun 4 -> Fri 9; SPY over the same span is Fri 2 -> Fri 9.
+        # 周六 3 日决策，加密资产从周日 4 日持有到周五 9 日；
+        # SPY 同期价格区间为周五 2 日至周五 9 日。
         assert resolved == "2026-01-09"
         assert raw == pytest.approx(106.0 / 101.0 - 1)
         assert alpha == pytest.approx(raw - (spy["2026-01-09"] / spy["2026-01-02"] - 1))
 
     def test_bars_stamped_in_different_time_zones_meet_on_their_dates(self, monkeypatch):
-        # Yahoo stamps a coin's daily bar at midnight UTC and SPY's at midnight
-        # New York, five hours later: the same day, not the day after.
+        # Yahoo 对加密资产使用 UTC 午夜，对 SPY 使用纽约午夜，
+        # 两者可能相差五小时，但仍对应同一个自然日期，不能错算为次日。
         coin = pd.Series([100.0 + i for i in range(10)],
                          index=pd.date_range("2026-01-03", periods=10, freq="D", tz="UTC"))
         weekdays = pd.bdate_range("2025-12-29", "2026-01-16", tz="America/New_York")
@@ -1132,7 +1125,7 @@ class TestSettlementWindow:
 
         raw, alpha, _, resolved = settlement.fetch_returns("NVDA", "2026-01-05", 5, "SPY")
 
-        # Entered at the first real close after the decision: Wed 7, past the missing Tue 6.
+        # 从决策后的首个真实收盘价（周三 7 日）入场，跳过缺失的周二 6 日。
         assert raw == pytest.approx(106.0 / 101.0 - 1)
         assert resolved == "2026-01-14"
         assert alpha == pytest.approx(raw - (spy["2026-01-14"] / spy["2026-01-07"] - 1))
@@ -1140,7 +1133,7 @@ class TestSettlementWindow:
 
 @pytest.mark.unit
 def test_a_close_that_is_not_a_price_is_skipped_not_scored(monkeypatch):
-    """A zero close would score as an infinite return and be written to the memory log."""
+    """收盘价为零会导致无限收益率，不能将其写入 Memory Log。"""
     idx = pd.bdate_range("2026-01-05", periods=8)
     stock = pd.Series([0.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0], index=idx)
     spy = pd.Series([400.0 + i for i in range(8)], index=idx)
@@ -1153,7 +1146,7 @@ def test_a_close_that_is_not_a_price_is_skipped_not_scored(monkeypatch):
 
 @pytest.mark.unit
 class TestSettleAll:
-    """A scheduler that stops analysing a ticker can still settle its decisions (#1445)."""
+    """调度器停止分析某个 ticker 后仍应能结算其历史决策（#1445）。"""
 
     def _setup(self, tmp_path, monkeypatch):
         log = make_log(tmp_path)
@@ -1208,8 +1201,8 @@ def test_the_graph_settles_every_ticker_under_its_own_config(tmp_path, monkeypat
 
 @pytest.mark.unit
 class TestSettlementOnceAndDurably:
-    """Settlement is paid for in reflection calls, so it runs once per decision and
-    keeps what it finished; what it could not do is reported (#1428, #1445)."""
+    """结算反思会产生 LLM 费用，因此每条决策只能反思一次；
+    成功部分应保留，无法完成的部分需报告（#1428、#1445）。"""
 
     def _log(self, tmp_path, monkeypatch, *dates):
         log = make_log(tmp_path)
@@ -1291,7 +1284,7 @@ def test_any_failure_to_price_a_decision_is_reported(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_a_run_does_not_wait_on_another_settlement_pass(tmp_path):
-    """The other pass settles the same log; a run's step goes on without waiting."""
+    """其他结算流程正在处理同一日志时，本次步骤不必等待，继续运行。"""
     import threading
     import time
 
