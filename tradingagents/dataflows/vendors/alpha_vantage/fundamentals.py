@@ -3,21 +3,18 @@ from tradingagents.dataflows.vendors.alpha_vantage.common import _make_api_reque
 
 
 def get_fundamentals(ticker: str, as_of_date: str = None) -> str:
-    """
-    Retrieve comprehensive fundamental data for a given ticker symbol using Alpha Vantage.
+    """使用 Alpha Vantage 获取指定 ticker 的完整基本面数据。
 
-    OVERVIEW serves only present-day values and carries no historical vintage, so
-    a past ``as_of_date`` withholds it rather than leaking post-decision figures
-    into a backtest (#1300); so are the statement endpoints below, which carry
-    no filing date.
+    OVERVIEW 只提供当前值，没有历史数据版本，因此历史 ``as_of_date``
+    必须拒绝返回，以免回测泄漏决策后的数据（#1300）。
+    下方财报接口也没有实际披露日期，遵守相同约束。
 
-    Args:
-        ticker (str): Ticker symbol of the company
-        as_of_date (str): Analysis date, yyyy-mm-dd
+    参数：
+        ticker (str)：公司交易代码。
+        as_of_date (str)：分析日期，格式 yyyy-mm-dd。
 
-    Returns:
-        str: Company overview data including financial ratios and key metrics
-    """
+    返回：
+        str：包含财务比率与核心指标的公司概况。"""
     withheld = withhold_live_profile(as_of_date, ticker)
     if withheld:
         return withheld
@@ -30,7 +27,7 @@ def get_fundamentals(ticker: str, as_of_date: str = None) -> str:
 
 
 def get_balance_sheet(ticker: str, freq: str = "quarterly", as_of_date: str = None):
-    """Retrieve balance sheet data for a given ticker symbol using Alpha Vantage."""
+    """使用 Alpha Vantage 获取指定 ticker 的资产负债表。"""
     withheld = withhold_undated_statements(as_of_date, ticker, "Balance Sheet")
     if withheld:
         return withheld
@@ -38,7 +35,7 @@ def get_balance_sheet(ticker: str, freq: str = "quarterly", as_of_date: str = No
 
 
 def get_cashflow(ticker: str, freq: str = "quarterly", as_of_date: str = None):
-    """Retrieve cash flow statement data for a given ticker symbol using Alpha Vantage."""
+    """使用 Alpha Vantage 获取指定 ticker 的现金流量表。"""
     withheld = withhold_undated_statements(as_of_date, ticker, "Cash Flow")
     if withheld:
         return withheld
@@ -46,7 +43,7 @@ def get_cashflow(ticker: str, freq: str = "quarterly", as_of_date: str = None):
 
 
 def get_income_statement(ticker: str, freq: str = "quarterly", as_of_date: str = None):
-    """Retrieve income statement data for a given ticker symbol using Alpha Vantage."""
+    """使用 Alpha Vantage 获取指定 ticker 的利润表。"""
     withheld = withhold_undated_statements(as_of_date, ticker, "Income Statement")
     if withheld:
         return withheld
