@@ -1,4 +1,4 @@
-"""Tests for the canonical provider->env-var mapping and the CLI key-prompt helper."""
+"""测试提供商与密钥环境变量的标准映射，以及 CLI 密钥输入助手。"""
 
 from __future__ import annotations
 
@@ -14,10 +14,9 @@ from tradingagents.llm_clients.api_key_env import PROVIDER_API_KEY_ENV, get_api_
 
 
 def test_every_select_llm_provider_choice_has_an_entry():
-    """select_llm_provider() must not present a provider the mapping doesn't know about."""
-    # Mirrors the dropdown order in cli/prompts.select_llm_provider so the two
-    # stay in lockstep. Region-specific keys (qwen-cn / minimax-cn / glm-cn)
-    # are reached via the secondary region prompt, so they must also be present.
+    """select_llm_provider() 不应显示密钥映射表中不存在的提供商。"""
+    # 该列表与 cli/prompts.select_llm_provider 下拉菜单顺序一致。
+    # 地区专属提供商通过第二级菜单选择，也应包含在映射表中。
     expected = {
         "openai", "google", "anthropic", "xai", "deepseek",
         "qwen", "qwen-cn",
@@ -68,7 +67,7 @@ def test_case_insensitive_lookup():
 
 @pytest.fixture
 def prompts():
-    """cli.prompts, which reads the environment when it is called."""
+    """cli.prompts 会在调用时读取环境变量。"""
     import cli.prompts as prompts_module
     return prompts_module
 
@@ -80,7 +79,7 @@ def test_ensure_api_key_returns_existing(monkeypatch, prompts):
 
 
 def test_ensure_api_key_no_op_for_ollama(monkeypatch, prompts):
-    # Even with no env var set, ollama should not prompt and should return None.
+    # 即使没有密钥环境变量，Ollama 也不应要求输入，而应返回 None。
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with patch.object(prompts, "questionary") as mock_q:
         result = prompts.ensure_api_key("ollama")
@@ -96,7 +95,7 @@ def test_ensure_api_key_unknown_provider_no_prompt(monkeypatch, prompts):
 
 
 def test_ensure_api_key_prompts_and_writes_to_env(monkeypatch, tmp_path, prompts):
-    """When key is missing, user-pasted value must be written to .env AND os.environ."""
+    """缺少密钥时，用户粘贴的值应同时写入 .env 与 os.environ。"""
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
 
@@ -113,7 +112,7 @@ def test_ensure_api_key_prompts_and_writes_to_env(monkeypatch, tmp_path, prompts
 
 
 def test_ensure_api_key_user_cancels_returns_none(monkeypatch, tmp_path, prompts):
-    """Empty prompt response (user cancelled) must not write to .env."""
+    """用户取消输入时，不能修改 .env。"""
     monkeypatch.delenv("XAI_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
 
@@ -123,15 +122,15 @@ def test_ensure_api_key_user_cancels_returns_none(monkeypatch, tmp_path, prompts
 
     assert result is None
     assert "XAI_API_KEY" not in os.environ
-    # .env may or may not exist depending on find_dotenv's walk, but if it
-    # does it must not contain the key.
+    # find_dotenv 的搜索路径可能导致 .env 存在或不存在；
+    # 若存在，取消输入后其中不应出现新密钥。
     env_file = tmp_path / ".env"
     if env_file.exists():
         assert "XAI_API_KEY" not in env_file.read_text()
 
 
 def test_ensure_api_key_updates_existing_env_file(monkeypatch, tmp_path, prompts):
-    """An existing .env with other keys must be preserved on writeback."""
+    """向已有 .env 写入密钥时，必须保留其他配置值。"""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     env_file = tmp_path / ".env"
@@ -158,8 +157,8 @@ def _prompt_key(prompts, monkeypatch, tmp_path, key="sk-typed-in"):
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
 def test_saved_key_file_is_owner_only(monkeypatch, prompts, tmp_path):
-    # The prompt writes a real credential; the file must not be readable by
-    # other local users whatever the umask is.
+    # 此处会写入真实凭据，因此无论 umask 如何配置，
+    # 其他本地用户都不能读取该文件。
     old = os.umask(0o002)
     try:
         _prompt_key(prompts, monkeypatch, tmp_path)
