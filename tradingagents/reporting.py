@@ -1,10 +1,9 @@
-"""Reusable report-tree writer shared by the CLI and the programmatic API.
+"""CLI 与程序接口共用的报告目录写入器。
 
-Writes a run's per-section markdown (analysts, research, trading, risk,
-portfolio) plus a consolidated ``complete_report.md`` under ``save_path``. The
-CLI and ``TradingAgentsGraph.save_reports`` both call this, so a headless / API
-run produces the same on-disk report tree a CLI run does.
-"""
+在 ``save_path`` 下分别写入分析师、研究、交易、风控、投资组合等
+章节的 Markdown 报告，并生成汇总文件 ``complete_report.md``。
+CLI 和 ``TradingAgentsGraph.save_reports`` 都使用这里的实现，
+因此无交互/API 运行与 CLI 生成的磁盘报告结构相同。"""
 
 from datetime import datetime
 from pathlib import Path
@@ -13,12 +12,12 @@ from tradingagents.agents.rating import run_rating
 
 
 def analyst_names(keys) -> list[str]:
-    """The analysts as users select them: the sentiment analyst's key is "social"."""
+    """返回用户选择的分析师集合；情绪分析师的标识为 "social"。"""
     return ["sentiment" if key == "social" else key for key in keys or []]
 
 
 def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
-    """The report's title and what produced it: analysis date, version, models, analysts, vendors."""
+    """生成报告标题与来源信息，包括分析日期、版本、模型、分析师和数据源。"""
     lines = [f"# Trading Analysis Report: {ticker}", ""]
     if final_state.get("trade_date"):
         lines.append(f"- Analysis date: {final_state['trade_date']}")
@@ -46,7 +45,7 @@ def _header(ticker: str, final_state: dict, settings: dict | None) -> str:
     return "\n".join(lines) + "\n\n"
 
 
-# The report's sections in order: (heading, folder, [(agent, file, state path)]).
+# 报告章节的固定顺序：(标题、目录、[(Agent、文件、状态路径)])。
 _SECTIONS = (
     ("I. Analyst Team Reports", "1_analysts", (
         ("Market Analyst", "market.md", ("market_report",)),
@@ -74,7 +73,7 @@ _SECTIONS = (
 
 
 def _report_parts(final_state: dict) -> list[tuple[str, str, list[tuple[str, str, str]]]]:
-    """The sections with something to say: (heading, folder, [(agent, file, text)])."""
+    """返回具有实际内容的报告章节：(标题、目录、[(Agent、文件、正文)])。"""
     parts = []
     for heading, folder, agents in _SECTIONS:
         written = []
@@ -91,12 +90,11 @@ def _report_parts(final_state: dict) -> list[tuple[str, str, list[tuple[str, str
 
 def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict | None = None,
                       html: bool = True) -> Path:
-    """Save a completed run's reports to ``save_path``; return the complete-report path.
-
-    ``settings`` (``TradingAgentsGraph.run_settings()``) adds what produced the run
-    to the report's header. ``html`` also writes ``complete_report.html``, one
-    self-contained page of the same report (#1419).
-    """
+    """将已完成的运行报告写入 ``save_path``，返回完整报告的路径。
+    
+    ``settings``（来自 ``TradingAgentsGraph.run_settings()``）
+    提供运行来源信息，写入报告标题区。
+    启用 ``html`` 还会生成自包含的 ``complete_report.html`` 页面（#1419）。"""
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
     parts = _report_parts(final_state)
