@@ -18,23 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class NormalizedChatOpenAI(ChatOpenAI):
-    """ChatOpenAI with normalized content output and capability-aware binding.
+    """支持标准化内容输出与模型能力感知绑定的 ChatOpenAI。
 
-    The Responses API returns content as a list of typed blocks
-    (reasoning, text, etc.). ``invoke`` normalizes to string for
-    consistent downstream handling.
-
-    ``with_structured_output`` consults the per-model capability table
-    (``capabilities.get_capabilities``) to pick the method and to decide
-    whether ``tool_choice`` may be sent. Models that reject ``tool_choice``
-    (e.g. DeepSeek V4 and reasoner — per their official tool-calling
-    guide) still bind the schema as a tool, but no ``tool_choice``
-    parameter is sent.
-
-    Provider-specific quirks beyond structured-output (e.g. DeepSeek's
-    reasoning_content roundtrip) live in subclasses so this base class
-    stays small.
-    """
+    Responses API 返回 reasoning、text 等不同类型的内容块，
+    ``invoke`` 将其统一成字符串以便下游使用。
+    ``with_structured_output`` 根据 ``capabilities.get_capabilities``
+    选择结构化输出方式及是否允许发送 ``tool_choice``。
+    对于 DeepSeek V4、reasoner 等拒绝 ``tool_choice`` 的模型，
+    仍把 Schema 绑定为工具，但不发送该参数。
+    推理内容回传等提供商特例放在子类中，保持基础类简洁。"""
 
     def invoke(self, input, config=None, **kwargs):
         return normalize_content(super().invoke(input, config, **kwargs))
@@ -47,23 +39,19 @@ class NormalizedChatOpenAI(ChatOpenAI):
                 f"agent factories will fall back to free-text generation."
             )
         method = method or caps.preferred_structured_method
-        # When the model rejects tool_choice, suppress langchain's hardcoded
-        # value. The schema is still bound as a tool — exactly what
-        # DeepSeek's official tool-calling examples do.
+        # 模型拒绝 ``tool_choice`` 时，禁止 LangChain 自动传入该参数；
+        # Schema 仍绑定为工具，与 DeepSeek 官方工具调用示例一致。
         if method == "function_calling" and not caps.supports_tool_choice:
             kwargs.setdefault("tool_choice", None)
         return super().with_structured_output(schema, method=method, **kwargs)
 
 
 class LocalCompatibleChatOpenAI(NormalizedChatOpenAI):
-    """OpenAI-compatible client for arbitrary local servers (LM Studio, vLLM,
-    llama.cpp via the generic ``openai_compatible`` provider).
-
-    Their tool-calling support varies, and many reject the object-form
-    ``tool_choice`` langchain sends for function-calling structured output. Bind
-    the schema as a tool but don't force tool_choice, so structured output works
-    across local servers regardless of the model ID's capabilities (#1057).
-    """
+    """任意本地服务（LM Studio、vLLM、llama.cpp）的 OpenAI 兼容客户端。
+    通过通用 ``openai_compatible`` 提供商接入。
+    各服务的工具调用能力不同，很多不接受 LangChain 的对象形式
+    ``tool_choice``。因此将 Schema 绑定为工具但不强制选择，
+    提升本地结构化输出兼容性（#1057）。"""
 
     def with_structured_output(self, schema, *, method=None, **kwargs):
         resolved = method or get_capabilities(self.model_name).preferred_structured_method
@@ -73,15 +61,11 @@ class LocalCompatibleChatOpenAI(NormalizedChatOpenAI):
 
 
 def _input_to_messages(input_: Any) -> list:
-    """Normalise a langchain LLM input to a list of message objects.
+    """将 LangChain LLM 输入规范化为消息对象列表。
 
-    Accepts a list of messages, a ``ChatPromptValue`` (from a
-    ChatPromptTemplate), or anything else (treated as no messages).
-    Used by providers that need to walk the outgoing message history;
-    in particular DeepSeek thinking-mode propagation must work for
-    both bare-list invocations and ChatPromptTemplate-driven ones, so
-    treating only ``list`` here would silently skip half the call sites.
-    """
+    支持原始消息列表、``ChatPromptTemplate`` 生成的 ``ChatPromptValue``；
+    其他输入视为没有消息。DeepSeek 思考内容回传需要遍历历史，
+    因此必须兼容直接列表调用和模板驱动的调用，否则会漏掉一部分入口。"""
     if isinstance(input_, list):
         return input_
     if hasattr(input_, "to_messages"):
@@ -90,19 +74,13 @@ def _input_to_messages(input_: Any) -> list:
 
 
 class DeepSeekChatOpenAI(NormalizedChatOpenAI):
-    """DeepSeek-specific overrides on top of the OpenAI-compatible client.
+    """OpenAI 兼容客户端的 DeepSeek 专属行为。
 
-    Thinking-mode round-trip is the only DeepSeek-specific behavior that
-    stays here. When DeepSeek's thinking models return a response with
-    ``reasoning_content``, that field must be echoed back as part of the
-    assistant message on the next turn or the API fails with HTTP 400.
-    ``_create_chat_result`` captures it on receive and
-    ``_get_request_payload`` re-attaches it on send.
-
-    Tool-choice handling for V4 and reasoner — those models reject the
-    ``tool_choice`` parameter — is handled by the capability dispatch in
-    ``NormalizedChatOpenAI.with_structured_output``, not here.
-    """
+    主要处理思考模式的 reasoning_content 往返：模型返回此字段后，
+    后续请求必须在对应 assistant 历史消息中再次包含它，否则 HTTP 400。
+    ``_create_chat_result`` 负责接收保存，``_get_request_payload`` 负责回传。
+    V4、reasoner 不支持 ``tool_choice``，这一限制由
+    ``NormalizedChatOpenAI.with_structured_output`` 的能力表处理。"""
 
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
@@ -134,51 +112,37 @@ class DeepSeekChatOpenAI(NormalizedChatOpenAI):
 
 
 class MinimaxChatOpenAI(NormalizedChatOpenAI):
-    """MiniMax-specific overrides on top of the OpenAI-compatible client.
+    """OpenAI 兼容客户端的 MiniMax 专属处理。
 
-    M2.x reasoning models embed ``<think>...</think>`` blocks directly in
-    ``message.content`` by default, which would pollute saved reports.
-    Per platform.minimax.io/docs/api-reference/text-openai-api,
-    ``reasoning_split=True`` redirects the thinking block into
-    ``reasoning_details`` so ``content`` stays clean. It is sent via
-    ``extra_body`` (not a top-level kwarg) because the openai SDK validates
-    top-level params and rejects unknown ones like reasoning_split (#826).
-
-    The flag is gated by ``ModelCapabilities.requires_reasoning_split`` so
-    only M2.x reasoning models receive it; non-reasoning MiniMax endpoints
-    (Coding Plan, MiniMax-Text-01) never see it.
-
-    Tool-choice handling for M2.x — those models accept only the string
-    enum ``{"none", "auto"}`` and reject langchain's function-spec dict —
-    is handled by the capability dispatch in
-    ``NormalizedChatOpenAI.with_structured_output``, not here.
-    """
+    M2.x 推理模型默认将 ``<think>...</think>`` 写在 message.content 中，
+    可能污染保存的报告。传入 ``reasoning_split=True`` 后，
+    可将思考内容分离到 ``reasoning_details``。
+    必须通过 ``extra_body`` 发送，因为 OpenAI SDK 拒绝未知顶层参数（#826）。
+    该标志只对 ``ModelCapabilities.requires_reasoning_split`` 为真的模型启用。
+    MiniMax M2.x 仅支持字符串 "none"/"auto" 形式的 tool_choice，
+    对象形式会报错，因此同样由基础客户端的能力分发去掉此参数。"""
 
     def _get_request_payload(self, input_, *, stop=None, **kwargs):
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
         if get_capabilities(self.model_name).requires_reasoning_split:
-            # Pass via extra_body, not as a top-level kwarg: the openai SDK
-            # (>=1.56) validates top-level params against Completions.create
-            # and rejects unknown ones like reasoning_split (#826). extra_body
-            # is forwarded into the request body untouched.
+            # 通过 extra_body 发送参数，而不是顶层关键字。
+            # OpenAI SDK（>=1.56）会校验 Completions.create 的参数，
+            # 并拒绝 reasoning_split 等未知顶层字段（#826）。
             extra_body = payload.setdefault("extra_body", {})
             extra_body.setdefault("reasoning_split", True)
         return payload
 
 
-# Settings a ChatGPT plan refuses.
+# ChatGPT 订阅调用不支持的参数。
 _PLAN_REFUSED = ("temperature", "top_p", "max_tokens")
 
 
 class ChatGPTPlanChatOpenAI(NormalizedChatOpenAI):
-    """The person's ChatGPT plan through OpenAI's Responses API.
+    """通过 OpenAI Responses API 使用用户的 ChatGPT 订阅。
 
-    Plan usage accepts no stored responses and no ``system`` role, and refuses
-    sampling and length settings. Responses stream and are not stored; system
-    instructions are sent as ``developer`` messages, OpenAI's name for the same
-    role; refused settings are dropped with a warning; no API organization or
-    project is sent.
-    """
+    订阅调用不允许存储响应或使用 system 角色，也拒绝部分采样及长度参数。
+    请求采用流式且不保存响应，system 指令改用 developer 角色，
+    不支持的参数在给出警告后移除；也不发送 API 组织或项目标识。"""
 
     def __init__(self, **kwargs):
         for name in _PLAN_REFUSED:
@@ -187,8 +151,8 @@ class ChatGPTPlanChatOpenAI(NormalizedChatOpenAI):
         kwargs.setdefault("streaming", True)
         kwargs.setdefault("store", False)
         super().__init__(**kwargs)
-        # The sign-in names the account; an organization or project set for API
-        # keys (OPENAI_ORG_ID, OPENAI_PROJECT_ID) must not travel with it.
+        # 登录绑定的是个人账户，API 密钥场景下的 OPENAI_ORG_ID、
+        # OPENAI_PROJECT_ID 不应随订阅鉴权一起发送。
         self.openai_organization = None
         for client in (self.root_client, self.root_async_client):
             client.organization = None
@@ -208,40 +172,33 @@ def _chatgpt_credential() -> Callable[[], str]:
     return credential()
 
 
-# Kwargs forwarded from user config to ChatOpenAI
+# 从用户配置透传给 ChatOpenAI 的关键字参数。
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "reasoning_effort", "temperature", "max_tokens",
     "api_key", "callbacks", "http_client", "http_async_client",
 )
 
-# OpenAI's ``reasoning_effort`` is only accepted by reasoning models — GPT-5 and
-# later, and the o-series. Non-reasoning models (gpt-4.1, gpt-4o, ...) 400 with
-# "Unsupported parameter: 'reasoning.effort' is not supported with this model".
-# Drop the kwarg for those rather than crash the run.
+# OpenAI 的 ``reasoning_effort`` 仅适用于推理模型（如 GPT-5 及之后、o 系列）。
+# 非推理模型（如 gpt-4.1、gpt-4o）会返回参数不支持的 HTTP 400；
+# 因此应在调用前移除此参数。
 _OPENAI_REASONING_MODEL = re.compile(r"^(?:gpt-(?:[5-9]|[1-9]\d)|o[1-9])(?:[.-]|$)")
 
 
 def _supports_reasoning_effort(model: str) -> bool:
-    """Whether the (native OpenAI) model accepts ``reasoning_effort``."""
+    """判断原生 OpenAI 模型是否支持 ``reasoning_effort``。"""
     return bool(_OPENAI_REASONING_MODEL.match(model.lower().strip()))
 
 
 @dataclass(frozen=True)
 class ProviderSpec:
-    """Declarative config for one OpenAI-compatible provider.
+    """单个 OpenAI 兼容提供商的声明式配置。
 
-    The OpenAI-compatible family (OpenAI, xAI, DeepSeek, Qwen, GLM, MiniMax,
-    OpenRouter, Ollama, and any user endpoint) all speak the same Chat
-    Completions API and differ only by these fields — so one row here replaces
-    the former per-provider base-URL dict, auth handling, and client-class
-    branches. Native Anthropic / Google use their own clients (genuinely
-    different APIs) and are intentionally NOT in this registry.
-
-    The API-key env var stays in ``api_key_env.PROVIDER_API_KEY_ENV`` (the single
-    source consulted by both this client and the CLI prompt); only behavior that
-    is provider-specific (base URL, key optionality, wire-format quirks via
-    ``chat_class``) lives here.
-    """
+    OpenAI、xAI、DeepSeek、Qwen、GLM、MiniMax、OpenRouter、Ollama
+    和用户自定义服务都使用 Chat Completions 兼容协议，
+    通过配置行统一描述地址、鉴权和客户端行为。
+    Anthropic、Google 使用独立 API，因此不放入此表。
+    API Key 环境变量名统一放在 ``api_key_env.PROVIDER_API_KEY_ENV``，
+    这里只维护提供商专属端点、密钥是否可选及协议差异。"""
 
     chat_class: type = NormalizedChatOpenAI   # provider quirks live in the subclass
     base_url: str | None = None            # default endpoint (None -> SDK default)
@@ -250,16 +207,16 @@ class ProviderSpec:
     placeholder_key: str = "EMPTY"            # sent when no key is available (keyless local servers)
     require_base_url: bool = False            # error if no base_url is resolved (generic endpoint)
     use_responses_api: bool = False           # native OpenAI Responses API
-    # A provider the user signs in to: ``credential()`` returns the api_key callable
-    # (a fresh token per request) or raises when nobody is signed in. Its token goes
-    # only to its pinned base_url, and never alongside an API key.
+    # 对需要用户登录的提供商，``credential()`` 返回动态获取密钥的回调，
+    # 每次请求可使用新 token；未登录时抛出异常。
+    # 订阅 token 只能发送到固定端点，且不能与 API Key 混用。
     credential: Callable[[], Callable[[], str]] | None = None
     pinned_base_url: bool = False             # refuse any other endpoint for this provider
 
 
-# Single source of truth for the OpenAI-compatible provider family. Dual-region
-# providers (qwen/glm/minimax) keep separate endpoints because international and
-# China accounts cannot share credentials (#758).
+# OpenAI 兼容提供商的统一注册表。
+# Qwen、GLM、MiniMax 等双地区提供商分别使用独立端点，
+# 因为国际与中国账户的凭据不能互换（#758）。
 OPENAI_COMPATIBLE_PROVIDERS: dict[str, ProviderSpec] = {
     "openai":     ProviderSpec(use_responses_api=True),
     "xai":        ProviderSpec(base_url="https://api.x.ai/v1"),
@@ -278,23 +235,23 @@ OPENAI_COMPATIBLE_PROVIDERS: dict[str, ProviderSpec] = {
     "ollama":     ProviderSpec(base_url="http://localhost:11434/v1", base_url_env="OLLAMA_BASE_URL",
                                key_optional=True, placeholder_key="ollama",
                                chat_class=LocalCompatibleChatOpenAI),
-    # The person's ChatGPT plan, through their own sign-in.
+    # 通过用户自己的登录信息使用 ChatGPT 订阅。
     "chatgpt":    ProviderSpec(base_url="https://api.openai.com/v1", chat_class=ChatGPTPlanChatOpenAI,
                                use_responses_api=True, credential=_chatgpt_credential,
                                pinned_base_url=True),
-    # Generic endpoint: user supplies base_url; key optional (keyless local).
+    # 通用端点由用户提供 base_url，允许省略密钥（如无鉴权本地服务）。
     "openai_compatible": ProviderSpec(
         require_base_url=True, key_optional=True, chat_class=LocalCompatibleChatOpenAI
     ),
 }
 
 
-# Providers the user signs in to instead of setting an API key.
+# 使用账户登录，而不是手动设置 API Key 的提供商。
 SIGNED_IN_PROVIDERS = tuple(key for key, spec in OPENAI_COMPATIBLE_PROVIDERS.items() if spec.credential)
 
 
 def check_endpoint(provider: str, base_url: str | None) -> None:
-    """Raise ValueError when a provider pinned to its own endpoint is pointed elsewhere."""
+    """固定端点的提供商若被指向其他地址，则抛出 ValueError。"""
     spec = OPENAI_COMPATIBLE_PROVIDERS.get(provider.lower())
     if spec is not None and spec.pinned_base_url and base_url and base_url != spec.base_url:
         raise ValueError(f"Provider '{provider}' only connects to {spec.base_url}; "
@@ -302,18 +259,16 @@ def check_endpoint(provider: str, base_url: str | None) -> None:
 
 
 def is_openai_compatible(provider: str) -> bool:
-    """Whether ``provider`` is served by the OpenAI-compatible registry."""
+    """判断指定 ``provider`` 是否由 OpenAI 兼容注册表提供。"""
     return provider.lower() in OPENAI_COMPATIBLE_PROVIDERS
 
 
 def _is_native_openai_base_url(base_url: str | None) -> bool:
-    """True when ``base_url`` is unset or points at api.openai.com.
+    """当 ``base_url`` 未设置或指向 api.openai.com 时返回 True。
 
-    The Responses API (/v1/responses) only exists on native OpenAI. A custom
-    base_url on the ``openai`` provider (a proxy, gateway, or local server)
-    speaks only Chat Completions, so the Responses API must stay off there even
-    though the provider spec enables it (#1024).
-    """
+    Responses API（/v1/responses）只对原生 OpenAI 端点可用。
+    如果 openai 提供商被配置为代理、网关或本地地址，
+    可能只支持 Chat Completions，因此必须关闭 Responses 模式（#1024）。"""
     if not base_url:
         return True
     if "://" not in base_url:
@@ -323,13 +278,10 @@ def _is_native_openai_base_url(base_url: str | None) -> bool:
 
 
 class OpenAIClient(BaseLLMClient):
-    """Client for OpenAI, Ollama, OpenRouter, and xAI providers.
+    """OpenAI、Ollama、OpenRouter、xAI 等兼容提供商的客户端。
 
-    For native OpenAI models, uses the Responses API (/v1/responses) which
-    supports reasoning_effort with function tools across all model families
-    (GPT-4.1, GPT-5). Third-party compatible providers (xAI, OpenRouter,
-    Ollama) use standard Chat Completions.
-    """
+    原生 OpenAI 模型使用 Responses API，可结合工具和 reasoning_effort。
+    第三方兼容提供商使用标准 Chat Completions 协议。"""
 
     def __init__(
         self,
@@ -342,7 +294,7 @@ class OpenAIClient(BaseLLMClient):
         self.provider = provider.lower()
 
     def get_llm(self) -> Any:
-        """Return a configured ChatOpenAI instance, driven by the provider registry."""
+        """根据提供商注册表返回已配置的 ChatOpenAI 实例。"""
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
         spec = OPENAI_COMPATIBLE_PROVIDERS.get(self.provider)
@@ -351,9 +303,10 @@ class OpenAIClient(BaseLLMClient):
         if spec is not None:
             chat_cls = spec.chat_class
 
-            # base_url precedence: explicit client base_url (carries the config /
-            # TRADINGAGENTS_LLM_BACKEND_URL value) > provider env override (e.g.
-            # OLLAMA_BASE_URL) > provider default. None means use the SDK default.
+            # base_url 优先级：显式客户端地址（含配置或
+            # TRADINGAGENTS_LLM_BACKEND_URL）高于提供商环境变量
+            # （如 OLLAMA_BASE_URL），再高于提供商默认地址。
+            # None 表示使用 SDK 默认值。
             env_base_url = os.environ.get(spec.base_url_env) if spec.base_url_env else None
             base_url = self.base_url or env_base_url or spec.base_url
             check_endpoint(self.provider, base_url)
@@ -367,9 +320,9 @@ class OpenAIClient(BaseLLMClient):
             if base_url:
                 llm_kwargs["base_url"] = base_url
 
-            # API key: required unless key_optional; keyless local servers get a
-            # placeholder. The env-var name is the single source in api_key_env.
-            # A signed-in provider sends its own credential, and only that.
+            # 除 key_optional 提供商外均要求 API Key，无密钥的本地服务
+            # 使用占位值。环境变量名称统一在 api_key_env 中定义。
+            # 订阅登录的提供商只发送自身动态获取的凭据。
             api_key_env = get_api_key_env(self.provider)
             api_key = self.kwargs.get("api_key") or (os.environ.get(api_key_env) if api_key_env else None)
             if spec.credential is not None:
@@ -387,15 +340,15 @@ class OpenAIClient(BaseLLMClient):
                     f"(e.g. add {api_key_env}=your_key to your .env file)."
                 )
 
-            # The Responses API only exists on native OpenAI; if the user points
-            # the openai provider at a custom base_url (proxy/gateway/local), it
-            # only speaks Chat Completions, so keep Responses off there (#1024).
+            # Responses API 仅对原生 OpenAI 端点启用。
+            # openai 提供商若指向自定义代理、网关或本地服务，
+            # 应使用 Chat Completions，不能继续开启 Responses（#1024）。
             if spec.use_responses_api and _is_native_openai_base_url(base_url):
                 llm_kwargs["use_responses_api"] = True
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 
-        # Forward user-provided kwargs
+        # 透传用户提供的关键字参数。
         for key in _PASSTHROUGH_KWARGS:
             if key not in self.kwargs:
                 continue
@@ -403,9 +356,9 @@ class OpenAIClient(BaseLLMClient):
                 continue
             llm_kwargs[key] = self.kwargs[key]
 
-        # The subclass (provider quirks) comes from the registry spec.
+        # 根据注册表配置选择具备相应提供商兼容处理的客户端子类。
         return chat_cls(**llm_kwargs)
 
     def validate_model(self) -> bool:
-        """Validate model for the provider."""
+        """校验模型是否被指定提供商支持。"""
         return validate_model(self.provider, self.model)
