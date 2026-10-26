@@ -1,21 +1,15 @@
-"""Sentiment analyst: one sentiment report from three sources.
+"""情绪分析师：综合三个数据来源生成一份情绪报告。
 
-The node fetches its sources before calling the model and puts them in the
-prompt, so the model reports on data it was given rather than inventing posts:
+模型调用前先拉取各数据源，并直接写入 Prompt，避免模型编造帖子：
+1. Yahoo Finance 新闻标题；
+2. StockTwits 按 cashtag 检索的帖子及 Bullish/Bearish 标签；
+3. Reddit 的股票或加密资产相关社区帖子。
 
-  1. News headlines: Yahoo Finance
-  2. StockTwits messages: the cashtag stream, with Bullish/Bearish tags
-  3. Reddit posts: r/wallstreetbets, r/stocks, r/investing, or crypto communities for a crypto pair
-
-Each source is trimmed to the analysis window. With a TypeSafe key, the social
-posts are screened by Jev first (see post_screen). These feeds serve recent items
-and are not archived, so a historical run's sentiment inputs are not
-point-in-time.
-
-The report is a SentimentReport through structured output where the provider
-supports it and free text otherwise, so the band, score and confidence header
-reads the same across providers.
-"""
+数据按分析窗口截取。提供 TypeSafe 密钥时，会先用 Jev 筛选社交帖子。
+这些服务主要返回近期内容，不一定提供完整历史归档，
+因此历史回测中的情绪输入不一定满足严格的时间点一致性。
+支持结构化输出时生成 SentimentReport，否则退回普通文本，
+并保持报告中评级、分数和置信度的展示形式。"""
 
 from datetime import datetime, timedelta
 
@@ -45,13 +39,11 @@ def _seven_days_back(trade_date: str) -> str:
 
 
 def create_sentiment_analyst(llm):
-    """Create a sentiment analyst node for the trading graph.
+    """为交易 Graph 创建情绪分析师节点。
 
-    Pre-fetches news + StockTwits + Reddit data, injects them into the
-    prompt as structured blocks, and produces a deterministic sentiment
-    report via structured output (with a free-text fallback for providers
-    that do not support it).
-    """
+    预先获取新闻、StockTwits 与 Reddit 数据，
+    整理成结构化区块注入 Prompt。优先生成结构化情绪报告，
+    不支持结构化输出的提供商则采用普通文本回退。"""
     structured_llm = bind_structured(llm, SentimentReport, "Sentiment Analyst")
 
     def sentiment_analyst_node(state):
@@ -60,12 +52,10 @@ def create_sentiment_analyst(llm):
         start_date = _seven_days_back(end_date)
         instrument_context = get_instrument_context_from_state(state)
 
-        # Pre-fetch all three sources. Each fetcher degrades gracefully and
-        # returns a string (no exceptions surface from here), so the LLM
-        # always sees something — either real data or a clear placeholder.
+        # 预先获取三个数据源。各抓取器失败时会降级并返回字符串，
+        # 不会向上抛异常；LLM 总能收到真实数据或明确的不可用提示。
         news_block = get_news.func(ticker, start_date, end_date)
-        # Pass the analysis window so a historical run trims social posts to it
-        # instead of leaking today's chatter into a backtest (#1220).
+        # 传入分析窗口，避免历史运行将今天的社交帖子泄漏到回测中（#1220）。
         screen = jev_screen(ticker)
         stocktwits_block = fetch_stocktwits_messages(
             ticker, limit=30, start_date=start_date, end_date=end_date, screen=screen
@@ -91,9 +81,8 @@ def create_sentiment_analyst(llm):
                     "system",
                     "You are a helpful AI assistant, collaborating with other assistants."
                     " Report what your tools support; another agent decides the trade."
-                    # No tool-calling here: the data is pre-fetched into the
-                    # prompt, so tool-range wording would only invite a
-                    # hallucinated tool call (#1130).
+                    # 此处不使用工具调用：数据已提前注入 Prompt，
+                    # 再描述工具轮次只会诱导模型生成不存在的工具调用（#1130）。
                     " Today's date is {current_date}; treat it as 'now' for all analysis. {instrument_context}"
                     " " + NO_EXTERNAL_TOOLS +
                     "\n{system_message}",
@@ -106,9 +95,8 @@ def create_sentiment_analyst(llm):
         prompt = prompt.partial(current_date=end_date)
         prompt = prompt.partial(instrument_context=instrument_context)
 
-        # Format the template into a concrete message list so the structured
-        # and free-text paths receive the same input. No bind_tools — the
-        # data is already in the prompt.
+        # 先把模板格式化为具体消息列表，使结构化与普通文本路径接收相同输入。
+        # 不调用 bind_tools，因为数据已经包含在 Prompt 中。
         formatted_messages = prompt.format_messages(messages=state["messages"])
 
         report_text = invoke_structured_or_freetext(
@@ -137,7 +125,7 @@ def _build_system_message(
     reddit_block: str,
     subreddits: tuple[str, ...] = DEFAULT_SUBREDDITS,
 ) -> str:
-    """Assemble the sentiment-analyst system message with structured data blocks."""
+    """将结构化数据区块拼接成情绪分析师的系统提示词。"""
     if subreddits == DEFAULT_SUBREDDITS:
         character = "r/wallstreetbets is often contrarian/exuberant; r/stocks more measured; r/investing longer-term"
     elif len(subreddits) > len(CRYPTO_SUBREDDITS):
