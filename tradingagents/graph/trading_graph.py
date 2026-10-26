@@ -59,7 +59,7 @@ class TradingAgentsGraph:
         callbacks: list | None = None,
     ):
         """初始化交易 Agent Graph 及其组件。
-        
+
         参数：
             selected_analysts：需要启用的分析师类型列表。
             debug：是否启用调试模式。
@@ -115,7 +115,7 @@ class TradingAgentsGraph:
     def resolve_instrument_context(self, ticker: str, asset_type: str = "stock",
                                    trade_date: str | None = None) -> str:
         """一次性解析 ticker 的真实标的身份，并返回完整标的上下文。
-        
+
         通过确定性的 yfinance 查询（带缓存、失败时不中断）构造上下文，
         让各 Agent 依据真实公司身份分析，避免仅从价格图中臆测公司（#814）。
         ``propagate()`` 和 CLI 都调用这里，保证不同入口都能向整个图传递标的身份。"""
@@ -124,7 +124,7 @@ class TradingAgentsGraph:
 
     def _memory_as_of(self, trade_date) -> str | None:
         """确定历史经验可用性的时间截止点（#1251）。
-        
+
         历史分析或回测（交易日早于今天）只使用该交易日之前已结算的经验。
         当日运行返回 None，即关闭过滤，使实时运行和迁移前没有结算日期的
         旧记录不受影响。"""
@@ -132,7 +132,7 @@ class TradingAgentsGraph:
 
     def _run_signature(self, asset_type: str, portfolio=None) -> str:
         """返回改变后必须使现有检查点失效的运行参数。
-        
+
         这些参数参与生成检查点 thread ID，因此分析师组合、辩论和风险深度、
         资产模式变化后会从头运行，避免悄然沿用旧图（#1089）。
         其余配置（提供商、模型、端点、语言、数据源、上限）也必须参与，
@@ -156,12 +156,12 @@ class TradingAgentsGraph:
 
     def propagate(self, company_name, trade_date, asset_type: str = "stock", portfolio=None):
         """针对指定公司和日期执行交易 Agent Graph。
-        
+
         ``asset_type`` 用来切换默认股票流程和 #567 新增的加密资产流程
         （``"crypto"``）。CLI 根据 ticker 自动识别，程序调用者则需显式传入。
         配置启用 ``checkpoint_enabled`` 时，图会使用每个 ticker 独立的
         SqliteSaver 重新编译；相同 ticker 和日期的后续运行可从上次成功节点恢复。
-        
+
         返回 ``(final_state, signal)``，其中 ``signal`` 为五级评级
         （Buy / Overweight / Hold / Underweight / Sell），或在无法解析评级时
         返回 ``"REVIEW"``（#1170）。映射到 PortfolioRating 枚举前应先调用
@@ -178,7 +178,7 @@ class TradingAgentsGraph:
     def begin_checkpoint(self, company_name, trade_date, asset_type: str = "stock", portfolio=None) -> str | None:
         """使用每个 ticker 专属的 checkpointer 重新编译图，并返回要注入
         stream/invoke ``config`` 的 ``thread_id``；禁用检查点时返回 None。
-        
+
         每次调用后都必须在 ``finally`` 中执行 :meth:`end_checkpoint`。
         ``propagate``（通过 :meth:`checkpoint_scope`）和 CLI 流式入口均使用
         这套机制，确保 ``--checkpoint`` 真正支持恢复（#1249）。
@@ -204,7 +204,7 @@ class TradingAgentsGraph:
     def checkpoint_input(self, init_state):
         """返回流式执行或调用图时需要传入的值：从检查点恢复时为 None，
         全新运行时为初始状态。
-        
+
         LangGraph 在传入 None 时恢复中断的线程；如果重新传入初始状态，
         消息 reducer 会重复追加这些消息，造成恢复后的状态包含重复消息（#1249）。"""
         return None if self._resuming else init_state
@@ -235,7 +235,7 @@ class TradingAgentsGraph:
 
     def run_settings(self) -> dict:
         """生成保存到报告和状态日志中的运行来源信息。
-        
+
         只记录白名单字段；端点（backend_url 可能包含凭据）、密钥和本地路径
         一律不写入。"""
         cfg = self.config
@@ -256,7 +256,7 @@ class TradingAgentsGraph:
 
     def save_reports(self, final_state, ticker, save_path=None, html=True) -> Path:
         """与 CLI 一样，为已完成的运行保存整套报告文件。
-        
+
         程序调用者也会得到与 CLI 相同的磁盘报告；可以显式指定
         ``save_path``，否则默认写入 ``results_dir``。
         除非 ``html`` 为 False，否则还会生成一个 HTML 报告页面。"""
@@ -271,7 +271,7 @@ class TradingAgentsGraph:
 
     def create_run_state(self, company_name, trade_date, asset_type: str = "stock", portfolio=None):
         """构造运行初始状态；propagate() 和 CLI 都从这里开始。
-        
+
         向所有 Agent 注入已解析的标的身份（#814）。Memory Log 经验不在这里
         加载，而由 Graph 的 Memory Log 节点与分析师并行结算并读取
         （见 ``_memory_step``）。"""
@@ -287,7 +287,7 @@ class TradingAgentsGraph:
         """Graph 的 Memory Log 节点与分析师并行运行（#1428）：
         结算全部 ticker 到期的历史决策（#1445），再向 Portfolio Manager
         返回在当前交易日期之前已经产生的经验（#1251）。
-        
+
         结算需要获取价格，并请求模型对每笔决策生成反思，因此安排在分析师
         执行期间而非之前。此节点失败不会中断整次分析：保留分析师结果、
         继续使用日志中已有的经验，并在报告中说明哪些决策未能结算。"""
@@ -312,7 +312,7 @@ class TradingAgentsGraph:
 
     def settle_pending(self, company_name) -> settlement.Settlement:
         """结算当前 ticker 中持仓观察期已结束的决策。
-        
+
         每次运行只会在分析师执行期间结算已到期的历史决策；本次新决策
         要等后续运行才到期。如果调用者已经完成该 ticker 的分析
         （例如回测批处理、定时任务），可以调用本方法立即尝试结算。
@@ -322,7 +322,7 @@ class TradingAgentsGraph:
 
     def settle_all_pending(self, wait: bool = True) -> settlement.Settlement:
         """结算所有 ticker 中持仓观察期已结束的决策（#1445）。
-        
+
         对轮换 ticker 的调度器而言，如果停止分析某个 ticker，
         其决策可能永远处于待结算状态，后续也无法使用相应经验。
         设置 ``wait=False`` 时，不等待同一日志上已在执行的结算任务。"""
@@ -379,11 +379,11 @@ class TradingAgentsGraph:
 
     def stream_run(self, graph_input, **args):
         """以 ``(messages, state)`` 的形式流式返回运行结果。
-        
+
         ``messages`` 包含各 Agent（包括分析师）的消息；``state`` 为顶层
         步骤执行后的运行状态。若是分析师子图内部步骤，只有报告提交后
         才能取得该报告，否则为 None。
-        
+
         每个分析师都在独立子图中运行；顶层状态须等待最慢的分析师完成，
         才统一接收所有报告。因此，为了及时输出消息和报告，应在各自
         子图任务完成时就流式返回其结果。"""

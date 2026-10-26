@@ -51,7 +51,7 @@ def _tools_or_done(state) -> str:
 
 def _analyst_graph(spec, agent, max_tool_rounds: int):
     """每名分析师使用独立子图执行模型和工具调用，并维护私有消息历史。
-    
+
     子图只返回该分析师的报告，因此并行分析师不会写入同一个状态键，
     其工具调用记录也不会混入其他分析师的消息。达到 ``max_tool_rounds``
     后，会要求模型给出最终报告，并在这一轮结束，不管模型如何回答；
@@ -107,7 +107,7 @@ class GraphSetup:
         self, selected_analysts=("market", "social", "news", "fundamentals"), memory_node=None
     ):
         """构建并编译 Agent 工作流图。
-        
+
         参数：
             selected_analysts (list)：需要启用的分析师类型，可选：
                 - "market"：市场分析师

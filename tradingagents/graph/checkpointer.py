@@ -26,7 +26,7 @@ def _db_path(data_dir: str | Path, ticker: str) -> Path:
 
 def thread_id(ticker: str, date: str, signature: str = "") -> str:
     """根据 ticker 和日期生成确定性的线程 ID。
-    
+
     ``signature`` 包含影响图结构的运行选项，避免使用不同图配置恢复时
     复用旧检查点（#1089）；省略签名时仍兼容旧版线程 ID。"""
     base = f"{ticker.upper()}:{date}"
@@ -64,7 +64,7 @@ def checkpoint_step(data_dir: str | Path, ticker: str, date: str, signature: str
 
 def clear_all_checkpoints(data_dir: str | Path) -> int:
     """删除全部检查点数据库，并返回删除的数据库数量。
-    
+
     SQLite 会将已提交状态写入数据库旁的 ``-wal`` 和 ``-shm`` 文件；
     如果只删除 ``.db``，仍可能有检查点数据留在磁盘上。"""
     cp_dir = Path(data_dir) / "checkpoints"

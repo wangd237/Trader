@@ -95,7 +95,7 @@ def _normalize_crypto(s: str) -> str | None:
 
 def normalize_symbol(raw: str) -> str:
     """将用户或券商使用的代码映射为 Yahoo Finance 标准 ticker。
-    
+
     按以下优先级匹配（首先命中的规则生效）：
     1. 显式别名表：贵金属、能源和指数 CFD。
     2. 加密资产：已知基础币种以 USD、USDT 或 USDC 计价时，
@@ -106,7 +106,7 @@ def normalize_symbol(raw: str) -> str:
     5. 沪市：``600519.SH`` → ``600519.SS``。
     6. 其他情况：原样保留符号内容并转为大写，适用于普通股票、ETF
        和 ``GC=F``、``^GSPC`` 等 Yahoo 原生代码。
-    
+
     匹配前移除券商 CFD 的尾部 ``+`` 标记（如 ``XAUUSD+``）。
     本函数仅做语法转换，不调用网络，因此适合每次请求时执行。"""
     if not isinstance(raw, str) or not raw.strip():
@@ -144,12 +144,12 @@ _TICKER_PATH_RE = re.compile(r"^[A-Za-z0-9._\-\^=+]+$")
 
 def safe_ticker_component(value: str, *, max_len: int = 32) -> str:
     """验证 ``value`` 是否可以安全拼接到文件系统路径。
-    
+
     ticker 可能来自用户 CLI 输入或 LLM 工具调用，二者都可能受外部内容
     影响，例如新闻中的 Prompt 注入。如果不校验，
     ``"../../../etc/foo"`` 可能经 ``os.path.join`` 或 ``Path /``
     逃逸到缓存、检查点或结果目录之外。
-    
+
     通过允许字符校验时原样返回 ``value``；否则抛出 ``ValueError``。"""
     if not isinstance(value, str) or not value:
         raise ValueError(f"ticker must be a non-empty string, got {value!r}")

@@ -40,7 +40,7 @@ _BOOL_FALSE = ("false", "0", "no", "off")
 
 def _coerce(value: str, reference):
     """将环境变量字符串转换成现有默认值的数据类型。
-    
+
     非法输入会直接抛出 ``ValueError``，而不会静默使用默认值；
     例如布尔值误拼为 ``treu`` 或整数含有非数字字符，应在启动时明确报错，
     避免无人值守任务使用错误配置。"""
@@ -75,7 +75,7 @@ def _apply_env_overrides(config: dict) -> dict:
 
 def build_default_config() -> dict:
     """生成内置默认配置并应用 TRADINGAGENTS_* 环境变量覆盖。
-    
+
     模块导入时调用并赋值给 DEFAULT_CONFIG；需要读取当前环境变量时
     可以再次调用此函数。"""
     return apply_unified_config(_apply_env_overrides({
@@ -169,7 +169,7 @@ def build_default_config() -> dict:
         # 留空时由 ``benchmark_map`` 根据交易所后缀自动选择指数。
         # 美股默认使用 SPY，因此反思会显示 "Alpha vs SPY"；
         # 其他市场自动选用其地区指数。
-        # 
+        #
         # ``holding_period_days`` 是从分析日期之后的第一个收盘日算起的交易日数，
         # 用来衡量决策表现，并用于反思和回测统计。
         "holding_period_days": 5,

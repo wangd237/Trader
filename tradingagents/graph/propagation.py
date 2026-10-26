@@ -20,7 +20,7 @@ class Propagator:
         portfolio_context: str = "",
     ) -> dict[str, Any]:
         """创建 Agent Graph 的初始状态。
-        
+
         ``instrument_context`` 是运行开始时解析一次的确定性标的身份信息
         （见 ``TradingAgentsGraph.resolve_instrument_context``）。
         若该值为空，Agent 将通过 ``get_instrument_context_from_state``
@@ -64,7 +64,7 @@ class Propagator:
 
     def get_graph_args(self, callbacks: list | None = None) -> dict[str, Any]:
         """生成调用 Graph 时使用的参数。
-        
+
         参数：
             callbacks：用于跟踪工具执行的可选回调列表。
                 注意：LLM 回调在 LLM 构造函数中单独处理。"""
