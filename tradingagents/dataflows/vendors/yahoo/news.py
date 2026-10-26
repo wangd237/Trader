@@ -1,4 +1,4 @@
-"""yfinance-based news data fetching functions."""
+"""基于 yfinance 的新闻数据获取函数。"""
 
 import contextlib
 from datetime import UTC, datetime
@@ -14,11 +14,10 @@ from tradingagents.dataflows.vendors.yahoo.common import yf_retry
 
 
 def _extract_article_data(article: dict) -> dict:
-    """Extract article data from yfinance news format (handles nested 'content' structure).
+    """从 yfinance 的新闻结构中提取文章数据，兼容嵌套的 content 格式。
 
-    Yahoo sends some fields as null rather than leaving them out, so each falls
-    back to its default on a null as well as on a missing key (#1458).
-    """
+    Yahoo 可能为部分字段返回 null 而不是直接省略，
+    因此无论字段缺失还是值为 null，都应使用默认值（#1458）。"""
     content = article.get("content")
     if isinstance(content, dict):
         url_obj = content.get("canonicalUrl") or content.get("clickThroughUrl") or {}
@@ -35,14 +34,13 @@ def _extract_article_data(article: dict) -> dict:
             "link": url_obj.get("url") or "",
             "pub_date": pub_date,
         }
-    # Fallback for flat structure. Parse the epoch publish time so flat
-    # articles are date-filterable too (otherwise they bypass the
-    # historical window and leak future news, #992/#1007).
+    # 兼容扁平结构的新闻记录，并解析其 Unix 发布时间，
+    # 保证历史窗口筛选同样生效，防止未来新闻泄漏（#992/#1007）。
     pub_date = None
     ts = article.get("providerPublishTime")
     if ts:
-        # Epoch seconds are UTC; parse them as UTC-aware so filtering does
-        # not shift with the host timezone (#1126).
+        # Unix 秒数采用 UTC；解析时保留 UTC 时区信息，
+        # 避免不同服务器本地时区导致筛选结果偏移（#1126）。
         with contextlib.suppress(ValueError, OSError, TypeError):
             pub_date = datetime.fromtimestamp(ts, tz=UTC)
     return {
@@ -55,12 +53,11 @@ def _extract_article_data(article: dict) -> dict:
 
 
 def _search_news(canonical: str, limit: int) -> tuple[list, bool]:
-    """Yahoo search's articles tagged with ``canonical``, and whether it knows the symbol.
+    """提取 Yahoo Search 中明确标记为 ``canonical`` 的文章，
+    并判断服务是否认识该标的。
 
-    Search answers when the quote feed is empty, but its articles are a
-    relevance-picked sample, and some are tagged loosely; only those tagged with
-    the symbol are about it.
-    """
+    即使报价消息流为空，搜索也可能返回文章；但相关性搜索结果
+    只是样本，且标签可能较宽泛，只有明确关联代码的文章才能视为该标的新闻。"""
     search = yf_retry(lambda: yf.Search(canonical, news_count=limit))
     if search is None:  # Yahoo answered "not found": its search is down
         return [], False
@@ -89,18 +86,16 @@ def get_news_yfinance(
     start_date: str,
     end_date: str,
 ) -> str:
-    """News about ``ticker`` published in the window, from Yahoo Finance.
+    """获取 Yahoo Finance 中分析窗口内指定 ``ticker`` 的新闻。
 
-    The symbol's quote feed comes first. When it is empty, Yahoo search serves
-    the articles tagged with the symbol; when it has none, or neither answers,
-    Yahoo news is unavailable, which is not an absence of news, and a configured
-    next vendor is tried. Search results are a sample, so finding none in the
-    window never reads as "no news".
-    """
+    优先使用该标的报价消息流；为空时从 Yahoo Search 中筛选
+    明确标记该代码的文章。若找不到或均无响应，代表 Yahoo 新闻源不可用，
+    不能据此判断市场没有新闻，应尝试下一个已配置提供商。
+    搜索只覆盖部分样本，窗口内搜索为空也不能直接推断没有新闻。"""
     article_limit = get_config()["news_article_limit"]
-    # Query Yahoo with the canonical symbol, like every other yfinance path —
-    # a raw broker/forex/crypto alias (XAUUSD, BTCUSD) otherwise silently
-    # returns no news. Keep the user's ticker in the report header.
+    # 与其他 yfinance 数据接口一样，使用标准化 ticker 查询 Yahoo；
+    # 原始券商、外汇或加密资产别名（如 XAUUSD、BTCUSD）可能静默查不到新闻。
+    # 报告标题仍保留用户原始输入代码。
     canonical = normalize_symbol(ticker)
     resolved = "" if canonical == ticker else f" (resolved to {canonical})"
     subject = f"news for {ticker}{resolved}"
@@ -111,14 +106,14 @@ def get_news_yfinance(
         if not answered:
             raise VendorUnavailableError(f"Yahoo Finance returned no news response for {canonical}")
         if not found:
-            # With the quote feed empty, no tagged article says nothing about the
-            # company's news (Yahoo tags no article with most non-US listings).
+            # 当报价消息流为空时，搜索不到带该代码标签的文章
+            # 不能说明公司确实没有新闻；Yahoo 对大量非美股缺少文章标签。
             raise VendorUnavailableError(f"Yahoo Finance has no news articles tagged {canonical}")
         articles = [_extract_article_data(a) for a in found]
 
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-    # Keep only articles within the requested window (look-ahead safe).
+    # 仅保留位于请求日期窗口内的文章，防止未来信息泄漏。
     in_range = [a for a in articles if in_window(a["pub_date"], start_dt, end_dt)]
     if in_range:
         return f"## {ticker}{resolved} News, from {start_date} to {end_date}:\n\n{_format_articles(in_range)}"
@@ -139,19 +134,17 @@ def get_global_news_yfinance(
     look_back_days: int | None = None,
     limit: int | None = None,
 ) -> str:
-    """
-    Retrieve global/macro economic news using yfinance Search.
+    """通过 yfinance Search 获取全球及宏观经济新闻。
 
-    Args:
-        as_of_date: Current date in yyyy-mm-dd format
-        look_back_days: Number of days to look back. ``None`` falls back to
-            ``global_news_lookback_days`` from the active config.
-        limit: Maximum number of articles to return. ``None`` falls back to
-            ``global_news_article_limit`` from the active config.
+    参数：
+        as_of_date：分析日期，格式 yyyy-mm-dd。
+        look_back_days：回溯天数；None 使用当前配置的
+            ``global_news_lookback_days``。
+        limit：最大文章数；None 使用当前配置的
+            ``global_news_article_limit``。
 
-    Returns:
-        Formatted string containing global news articles
-    """
+    返回：
+        包含全球新闻文章的格式化字符串。"""
     config = get_config()
     if look_back_days is None:
         look_back_days = config["global_news_lookback_days"]
@@ -174,10 +167,9 @@ def get_global_news_yfinance(
         ).news)
 
         for article in found or []:
-            # Window first: the limit counts what the run may read, so an
-            # out-of-window article must not spend the budget or cut the
-            # remaining searches short (#1356). Flat articles are filtered
-            # on the same rule, so none can leak future news (#1007).
+            # 先按日期窗口筛选，再应用数量限制。
+            # 窗口外的文章不能占用条数预算或提前停止后续搜索（#1356）。
+            # 扁平格式的文章也必须遵守同一规则，避免未来新闻泄漏（#1007）。
             data = _extract_article_data(article)
             if not in_window(data["pub_date"], start_dt, curr_dt):
                 continue
@@ -190,11 +182,10 @@ def get_global_news_yfinance(
 
     news_str = _format_articles(in_window_news[:limit])
 
-    # Nothing fell inside the window -> say so rather than return an
-    # empty-bodied report (#993).
+    # 窗口内没有文章时，应明确说明，而不是返回只有标题的空报告（#993）。
     if not news_str:
-        # Results merge several fuzzy searches, so their timestamps prove no
-        # continuous coverage; judge the window against the present only.
+        # 结果合并了多组模糊搜索，时间戳不能证明持续的历史覆盖；
+        # 窗口覆盖情况只能根据当前可见数据作保守判断。
         gap = coverage_gap((), start_date, as_of_date, "Yahoo Finance global news", "market news")
         return gap or f"No global news found between {start_date} and {as_of_date}"
 
