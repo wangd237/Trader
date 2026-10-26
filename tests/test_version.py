@@ -1,4 +1,4 @@
-"""The package version has one source, tradingagents.__version__, which the build reads."""
+"""包版本号只有一个权威来源：构建系统读取的 tradingagents.__version__。"""
 
 import re
 from pathlib import Path

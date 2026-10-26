@@ -1,7 +1,5 @@
-"""The vendor data-error hierarchy: every "vendor couldn't return usable data"
-condition derives from VendorError, so the router catches base types and any
-vendor slots in without new handling.
-"""
+"""提供商错误类型体系：所有“无法返回可用数据”的异常都继承 VendorError，
+因此路由器只需捕获基类，新数据源无需增加专门处理分支。"""
 import copy
 import unittest
 from unittest import mock
@@ -32,14 +30,14 @@ class HierarchyTests(unittest.TestCase):
             self.assertTrue(issubclass(cls, VendorError))
 
     def test_not_configured_is_still_a_value_error(self):
-        # Back-compat: existing `except ValueError` callers keep working.
+        # 向后兼容：已有 except ValueError 的调用方应继续正常工作。
         self.assertTrue(issubclass(VendorNotConfiguredError, ValueError))
 
     def test_vendor_named_errors_subclass_the_generic_bases(self):
         self.assertTrue(issubclass(AlphaVantageRateLimitError, VendorUnavailableError))
         self.assertTrue(issubclass(AlphaVantageNotConfiguredError, VendorNotConfiguredError))
         self.assertTrue(issubclass(FredNotConfiguredError, VendorNotConfiguredError))
-        # ... and therefore still ValueErrors
+        # 因此这些异常仍属于 ValueError。
         self.assertTrue(issubclass(FredNotConfiguredError, ValueError))
 
 
@@ -52,7 +50,7 @@ class RouterHandlesBaseTypesTests(unittest.TestCase):
         config_module._config = copy.deepcopy(default_config.DEFAULT_CONFIG)
 
     def test_rate_limit_subclass_caught_by_base(self):
-        # A vendor-named rate-limit error skips to the next vendor in the chain.
+        # 按提供商命名的限流异常应触发回退链尝试下一个数据源。
         set_config({"data_vendors": {"core_stock_apis": "alpha_vantage,yfinance"}})
 
         def _throttled(*a, **k):
@@ -81,7 +79,7 @@ class RouterHandlesBaseTypesTests(unittest.TestCase):
         self.assertEqual(out, "YF")
 
     def test_sole_unconfigured_vendor_surfaces_the_error(self):
-        # With no fallback, the not-configured condition must surface (not vanish).
+        # 不存在后备提供商时，未配置错误必须明确暴露而不能被吞掉。
         set_config({"data_vendors": {"core_stock_apis": "alpha_vantage"}})
 
         def _unconfigured(*a, **k):
@@ -95,8 +93,8 @@ class RouterHandlesBaseTypesTests(unittest.TestCase):
             router.route_to_vendor("get_stock_data", "AAPL", "2026-01-01", "2026-01-10")
 
     def test_an_unavailable_vendor_keeps_absence_from_being_claimed(self):
-        # The throttled vendor's coverage was never learned, so "no usable data
-        # from any configured vendor" would be a claim nobody checked.
+        # 被限流的数据源尚未证明自己是否覆盖目标标的，
+        # 因此不能断言“所有提供商都没有可用数据”。
         def throttled(*a, **k):
             raise VendorUnavailableError("Yahoo HTTP 429")
 

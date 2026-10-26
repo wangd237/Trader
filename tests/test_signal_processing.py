@@ -1,8 +1,7 @@
-"""The rating heuristic that reads the decision's 5-tier rating.
+"""验证从交易决策中提取五级评级的规则解析器。
 
-The Portfolio Manager's rendered decision always carries a ``**Rating**: X``
-header, so the rating is read deterministically; no second model call is made.
-"""
+Portfolio Manager 的渲染报告有固定的 ``**Rating**: X`` 标题，
+因此可以用确定性代码解析，无需再调用一次模型。"""
 
 import pytest
 
@@ -22,14 +21,14 @@ class TestParseRating:
         assert parse_rating("Rating: Overweight\nDetails.") == "Overweight"
 
     def test_explicit_label_with_markdown_bold_value(self):
-        # Regression: Rating: **Sell** — markdown around the value.
+        # 回归测试：允许 Rating: **Sell** 等 Markdown 强调写法。
         assert parse_rating("Rating: **Sell**\nExit immediately.") == "Sell"
 
     def test_explicit_label_with_markdown_bold_label(self):
         assert parse_rating("**Rating**: Underweight\nTrim exposure.") == "Underweight"
 
     def test_rendered_pm_markdown_shape(self):
-        # The exact shape produced by render_pm_decision must always parse.
+        # render_pm_decision 实际输出的格式必须始终可解析。
         text = (
             "**Rating**: Buy\n\n"
             "**Executive Summary**: Enter at $189-192, 6% portfolio cap.\n\n"
@@ -46,7 +45,7 @@ class TestParseRating:
         assert parse_rating(text) == "Sell"
 
     def test_no_rating_is_flagged_for_review_not_defaulted(self):
-        # A decision nobody can read is not a Hold; recording one invents a call.
+        # 无法识别的决策不等于 Hold，强行记录 Hold 会编造不存在的评级。
         assert parse_rating("No clear directional signal at this time.") == RATING_REVIEW
 
     def test_no_rating_custom_default(self):
@@ -57,7 +56,7 @@ class TestParseRating:
             assert parse_rating(f"Rating: {r}") == r
 
     def test_fullwidth_colon_is_parsed_not_reviewed(self):
-        # `Rating：Overweight` (fullwidth colon) is read, not sent to review (#1170).
+        # `Rating：Overweight` 使用全角冒号，也应成功解析而不是进入复核（#1170）。
         assert parse_rating("Rating：Overweight\n理由はこちら。") == "Overweight"
 
 
@@ -68,10 +67,10 @@ class TestExtractRating:
         assert extract_rating("") is None
 
     def test_whole_word_only(self):
-        # substrings inside larger words must not match
+        # 不能匹配其他单词内部的评级子串。
         assert extract_rating("The buyer was holding shares.") is None
 
     def test_parse_rating_defaults_to_review(self):
-        # The memory log tags an unreadable decision REVIEW, never a tradeable rating.
+        # Memory Log 应将无法识别的决策标为 REVIEW，不能写入可交易评级。
         assert parse_rating("No rating here.") == RATING_REVIEW
         assert parse_rating("No rating here.", default="Underweight") == "Underweight"

@@ -1,7 +1,6 @@
-"""The OpenAI-compatible provider registry is the single source of truth for the
-family; this guards each provider's resolved config (base URL, subclass, auth,
-Responses API) so a future edit can't silently break one.
-"""
+"""OpenAI 兼容提供商注册表是该家族的唯一配置来源。
+测试各提供商的基础 URL、客户端子类、鉴权和 Responses API 选择，
+避免后续修改无意破坏某个提供商。"""
 import pytest
 
 from tradingagents.llm_clients.openai_client import (
@@ -18,7 +17,7 @@ from tradingagents.llm_clients.openai_client import (
 def test_registry_membership():
     assert is_openai_compatible("openai")
     assert is_openai_compatible("openai_compatible")  # the generic endpoint
-    # native (different API) clients are intentionally NOT in the registry
+    # 原生 API 不兼容的客户端刻意不放在此注册表中。
     assert not is_openai_compatible("anthropic")
     assert not is_openai_compatible("google")
     assert not is_openai_compatible("azure")
@@ -51,19 +50,19 @@ def test_registry_spec(provider, base_url, chat_class, responses):
 
 @pytest.mark.unit
 def test_key_optionality():
-    # Local/generic endpoints are key-optional; hosted APIs require a key.
+    # 本地和通用端点允许省略密钥；托管 API 必须提供密钥。
     assert OPENAI_COMPATIBLE_PROVIDERS["ollama"].key_optional is True
     assert OPENAI_COMPATIBLE_PROVIDERS["openai_compatible"].key_optional is True
     assert OPENAI_COMPATIBLE_PROVIDERS["openai_compatible"].require_base_url is True
     assert OPENAI_COMPATIBLE_PROVIDERS["xai"].key_optional is False
-    # OLLAMA_BASE_URL is the only base-URL env override.
+    # OLLAMA_BASE_URL 是唯一允许的 Ollama 基础 URL 环境变量覆盖项。
     assert OPENAI_COMPATIBLE_PROVIDERS["ollama"].base_url_env == "OLLAMA_BASE_URL"
 
 
-# --- a provider that signs in: its own credential, its own pinned endpoint ---------
+# --- 登录型提供商：专属凭据及固定端点 ---------
 
 class _Recorder:
-    """Stands in for the chat class and records what the client built."""
+    """模拟聊天客户端类，并记录实际构造的参数。"""
 
     def __init__(self, **kwargs):
         self.kwargs = kwargs

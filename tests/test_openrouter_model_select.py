@@ -1,6 +1,6 @@
-"""OpenRouter model selection: prompts are labeled by mode (#1000); required
-prompts exit cleanly on cancel; the output-language prompt defaults to English
-on cancel; and the OpenRouter list is newest-first."""
+"""OpenRouter 模型选择测试：提示标注 quick/deep 模式（#1000）；
+必填项被取消时安全退出，取消输出语言选择则默认英语，
+模型列表按时间从新到旧排列。"""
 
 from unittest import mock
 
@@ -51,7 +51,7 @@ class TestOpenRouterLatestFirst:
 @pytest.mark.unit
 class TestMainstreamFilter:
     def test_dropdown_prefers_mainstream_over_niche(self):
-        # _fetch returns newest-first; the shortlist should drop niche namespaces.
+        # _fetch 已按时间倒序返回模型；候选短名单应过滤小众命名空间。
         models = [
             ("Fusion", "openrouter/fusion"),
             ("Niche", "nex-agi/nex-n2-pro:free"),

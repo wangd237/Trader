@@ -1,4 +1,4 @@
-"""Unified Trader LLM configuration: precedence, safety and factory routing."""
+"""统一 Trader LLM 配置测试：优先级、安全边界和工厂路由。"""
 
 import pytest
 

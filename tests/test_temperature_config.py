@@ -1,8 +1,7 @@
-"""Tests for the configurable sampling temperature (#178/#168).
+"""测试可配置的采样温度（#178/#168）。
 
-Temperature is a cross-provider knob: when set it must reach the underlying
-chat client; when unset the provider keeps its own default.
-"""
+temperature 是跨提供商参数；设置后必须传给底层聊天客户端，
+未设置时则保留提供商自身默认值。"""
 
 
 import pytest
@@ -15,9 +14,9 @@ class TestTemperatureForwarding:
     @pytest.mark.parametrize(
         "provider,model",
         [
-            # gpt-4.1 is intentionally a non-reasoning model: the GPT-5 family
-            # are reasoning models and correctly drop temperature (see
-            # test_openai_reasoning_effort), so forwarding is tested on gpt-4.1.
+            # 故意使用非推理模型 gpt-4.1 测试 temperature 透传；
+            # GPT-5 系列属于推理模型，会正确忽略该参数，
+            # 相关逻辑由 test_openai_reasoning_effort 检查。
             ("openai", "gpt-4.1"),
             ("anthropic", "claude-sonnet-5"),
             ("google", "gemini-3.5-flash"),
@@ -31,11 +30,11 @@ class TestTemperatureForwarding:
         assert llm.temperature == 0.0
 
     def test_temperature_omitted_leaves_provider_default(self):
-        # Not passing temperature must not force it to a value.
+        # 未传 temperature 时不得强制设置默认数值。
         llm = create_llm_client(
             provider="openai", model="gpt-4.1", api_key="placeholder"
         ).get_llm()
-        # langchain's default is unset/None, not 0.0
+        # LangChain 默认值为未设置或 None，而不是 0.0。
         assert llm.temperature is None
 
 
@@ -45,7 +44,7 @@ class TestTemperatureEnvOverlay:
         import tradingagents.default_config as dc
         monkeypatch.setenv("TRADINGAGENTS_TEMPERATURE", "0.2")
         config = dc.build_default_config()
-        # Stored on config (string from env is fine; consumed via float()).
+        # 配置项中允许保存环境变量字符串，使用时通过 float() 转换。
         assert config["temperature"] in ("0.2", 0.2)
         assert float(config["temperature"]) == 0.2
 
@@ -57,7 +56,7 @@ class TestTemperatureEnvOverlay:
 
 @pytest.mark.unit
 class TestProviderKwargsTemperature:
-    """build_llm_kwargs float-coerces and forwards temperature, or omits it."""
+    """build_llm_kwargs 将 temperature 转换为浮点数并透传，未提供则省略。"""
 
     def _kwargs_for(self, temperature):
         from tradingagents.llm_clients import build_llm_kwargs

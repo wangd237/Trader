@@ -1,10 +1,10 @@
-"""Each model tier can name its own provider (#1440).
+"""每个模型层级可以指定独立的提供商（#1440）。
 
-The quick tier (analysts, researchers, debaters, trader) and the deep tier
-(research and portfolio managers) default to ``llm_provider``. A tier that names
-another provider gets that provider's own settings and endpoint, never the main
-provider's URL, and the run's settings and report say which provider each used.
-"""
+quick 用于分析师、研究员、辩论员和 Trader；
+deep 用于研究经理和投资组合经理。
+默认都使用 llm_provider，但指定了不同提供商后，
+必须使用该提供商自己的端点和参数，不能套用主提供商 URL；
+运行设置及报告应准确展示各层级所用提供商。"""
 
 import pytest
 
