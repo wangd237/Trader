@@ -1,4 +1,4 @@
-"""Test checkpoint resume: crash mid-analysis, re-run resumes from last node."""
+"""检查点恢复测试：分析中途崩溃后，再次运行应从上次成功节点继续。"""
 
 import tempfile
 import unittest
@@ -13,7 +13,7 @@ from tradingagents.graph.checkpointer import (
     thread_id,
 )
 
-# Mutable flag to simulate crash on first run
+# 可变标志：在首次运行时模拟崩溃。
 _should_crash = False
 
 
@@ -48,41 +48,41 @@ class TestCheckpointResume(unittest.TestCase):
         self.date = "2026-04-20"
 
     def test_crash_and_resume(self):
-        """Crash at 'trader' node, then resume from checkpoint."""
+        """在 trader 节点模拟崩溃，随后从检查点恢复。"""
         global _should_crash
         builder = _build_graph()
         tid = thread_id(self.ticker, self.date)
         cfg = {"configurable": {"thread_id": tid}}
 
-        # Run 1: crash at trader node
+        # 首次运行：在 Trader 节点崩溃。
         _should_crash = True
         with get_checkpointer(self.tmpdir, self.ticker) as saver:
             graph = builder.compile(checkpointer=saver)
             with self.assertRaises(RuntimeError):
                 graph.invoke({"count": 0}, config=cfg)
 
-        # Checkpoint should exist at step 1 (analyst completed)
+        # 分析师完成后应在步骤 1 留下检查点。
         self.assertIsNotNone(checkpoint_step(self.tmpdir, self.ticker, self.date))
         step = checkpoint_step(self.tmpdir, self.ticker, self.date)
         self.assertEqual(step, 1)
 
-        # Run 2: resume — trader succeeds this time
+        # 第二次运行：从检查点恢复，Trader 此次成功。
         _should_crash = False
         with get_checkpointer(self.tmpdir, self.ticker) as saver:
             graph = builder.compile(checkpointer=saver)
             result = graph.invoke(None, config=cfg)
 
-        # analyst added 1, trader added 10 → 11
+        # 分析师增加 1，Trader 增加 10，合计 11。
         self.assertEqual(result["count"], 11)
 
     def test_clear_checkpoint_allows_fresh_start(self):
-        """After clearing, the graph starts from scratch."""
+        """清除检查点之后，Graph 应从头开始运行。"""
         global _should_crash
         builder = _build_graph()
         tid = thread_id(self.ticker, self.date)
         cfg = {"configurable": {"thread_id": tid}}
 
-        # Create a checkpoint by crashing
+        # 通过模拟崩溃生成检查点。
         _should_crash = True
         with get_checkpointer(self.tmpdir, self.ticker) as saver:
             graph = builder.compile(checkpointer=saver)
@@ -91,11 +91,11 @@ class TestCheckpointResume(unittest.TestCase):
 
         self.assertIsNotNone(checkpoint_step(self.tmpdir, self.ticker, self.date))
 
-        # Clear it
+        # 清理检查点。
         clear_checkpoint(self.tmpdir, self.ticker, self.date)
         self.assertIsNone(checkpoint_step(self.tmpdir, self.ticker, self.date))
 
-        # Fresh run succeeds from scratch
+        # 新运行应从头开始并成功。
         _should_crash = False
         with get_checkpointer(self.tmpdir, self.ticker) as saver:
             graph = builder.compile(checkpointer=saver)
@@ -104,12 +104,12 @@ class TestCheckpointResume(unittest.TestCase):
         self.assertEqual(result["count"], 11)
 
     def test_different_date_starts_fresh(self):
-        """A different date must NOT resume from an existing checkpoint."""
+        """不同分析日期绝不能复用已有检查点。"""
         global _should_crash
         builder = _build_graph()
         date2 = "2026-04-21"
 
-        # Run with date1 — crash to leave a checkpoint
+        # 使用 date1 运行并崩溃，留下检查点。
         _should_crash = True
         tid1 = thread_id(self.ticker, self.date)
         with get_checkpointer(self.tmpdir, self.ticker) as saver:
@@ -119,10 +119,10 @@ class TestCheckpointResume(unittest.TestCase):
 
         self.assertIsNotNone(checkpoint_step(self.tmpdir, self.ticker, self.date))
 
-        # date2 should have no checkpoint
+        # date2 不应存在相应检查点。
         self.assertIsNone(checkpoint_step(self.tmpdir, self.ticker, date2))
 
-        # Run with date2 — should start fresh and succeed
+        # 使用 date2 运行，应全新启动并成功。
         _should_crash = False
         tid2 = thread_id(self.ticker, date2)
         self.assertNotEqual(tid1, tid2)
@@ -131,16 +131,16 @@ class TestCheckpointResume(unittest.TestCase):
             graph = builder.compile(checkpointer=saver)
             result = graph.invoke({"count": 0}, config={"configurable": {"thread_id": tid2}})
 
-        # Fresh run: analyst +1, trader +10 = 11
+        # 新运行：分析师 +1，Trader +10，最终为 11。
         self.assertEqual(result["count"], 11)
 
-        # Original date checkpoint still exists (untouched)
+        # 原日期的检查点必须保持原样。
         self.assertIsNotNone(checkpoint_step(self.tmpdir, self.ticker, self.date))
 
 
 class TestCheckpointSignature(unittest.TestCase):
-    """A different graph shape (analyst selection / depth / asset mode) must not
-    resume the previous run's checkpoint (#1089)."""
+    """分析师选择、研究深度或资产模式改变后，图结构不同，
+    不能恢复旧运行的检查点（#1089）。"""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -177,7 +177,7 @@ class TestCheckpointSignature(unittest.TestCase):
                 graph.invoke({"count": 0}, config={"configurable": {"thread_id": tid1}})
 
         self.assertIsNotNone(checkpoint_step(self.tmpdir, self.ticker, self.date, sig1))
-        # A different graph shape has no checkpoint to resume from.
+        # 不同图结构不应存在可供恢复的对应检查点。
         self.assertIsNone(checkpoint_step(self.tmpdir, self.ticker, self.date, sig2))
 
         _should_crash = False
@@ -187,12 +187,12 @@ class TestCheckpointSignature(unittest.TestCase):
             graph = builder.compile(checkpointer=saver)
             result = graph.invoke({"count": 0}, config={"configurable": {"thread_id": tid2}})
         self.assertEqual(result["count"], 11)
-        # sig1's checkpoint remains untouched.
+        # sig1 对应的检查点应保持不变。
         self.assertIsNotNone(checkpoint_step(self.tmpdir, self.ticker, self.date, sig1))
 
     def test_a_resume_under_other_settings_starts_fresh(self):
-        """The report names one provider, model set, language and vendor chain;
-        a resume must not carry reports another of them produced."""
+        """报告绑定了运行使用的提供商、模型组合、语言及数据源链，
+        恢复时不能复用其他配置生成的报告。"""
         from tradingagents.graph.trading_graph import TradingAgentsGraph
 
         g = object.__new__(TradingAgentsGraph)
@@ -210,7 +210,7 @@ class TestCheckpointSignature(unittest.TestCase):
                            ("temperature", 0.2), ("openai_reasoning_effort", "high")):
             g.config = {**base_config, key: value}
             self.assertNotEqual(base, g._run_signature("stock"), key)
-        # Where a run keeps its files, and how it retries, do not change what it writes.
+        # 文件保存位置和重试方式不影响运行所生成的内容。
         for key, value in (("results_dir", "/elsewhere"), ("data_cache_dir", "/cache"),
                            ("memory_log_path", "/log.md"), ("checkpoint_enabled", True), ("llm_max_retries", 9)):
             g.config = {**base_config, key: value}
@@ -221,7 +221,7 @@ class TestCheckpointSignature(unittest.TestCase):
     def test_run_signature_captures_graph_shape(self):
         from tradingagents.graph.trading_graph import TradingAgentsGraph
 
-        # Build a bare instance to exercise the pure helper without heavy __init__.
+        # 构造轻量实例，直接测试纯辅助方法，跳过复杂的 __init__。
         g = object.__new__(TradingAgentsGraph)
         g.selected_analysts = ("market", "news")
         g.config = {"max_debate_rounds": 1, "max_risk_discuss_rounds": 1}
@@ -235,12 +235,11 @@ class TestCheckpointSignature(unittest.TestCase):
         self.assertNotEqual(base, g._run_signature("stock"))      # debate depth
         g.config = {"max_debate_rounds": 1, "max_risk_discuss_rounds": 5}
         self.assertNotEqual(base, g._run_signature("stock"))      # risk depth
-        # Stable for identical inputs.
+        # 相同输入应产生稳定一致的结果。
         g.config = {"max_debate_rounds": 1, "max_risk_discuss_rounds": 1}
         self.assertEqual(base, g._run_signature("stock"))
-        # A checkpoint saved by the sequential layout is not resumed on the
-        # parallel one: its pending node no longer exists, and the join would
-        # never fire.
+        # 串行拓扑中生成的检查点不能被并行拓扑恢复：
+        # 旧检查点可能留下新图中不存在的待执行节点，导致汇合节点永不触发。
         self.assertIn("analysts=parallel", base)
 
 

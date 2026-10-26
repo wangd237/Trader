@@ -1,9 +1,9 @@
-"""The chatgpt provider runs on the person's ChatGPT plan.
+"""chatgpt 提供商使用用户自己的 ChatGPT 订阅。
 
-It sends their sign-in and nothing else, only to OpenAI, in the shape plan usage
-accepts (streamed, unstored, no ``system`` role); the CLI offers it under
-"Subscription", checks the sign-in before a run, and lists the plan's models.
-"""
+仅向 OpenAI 发送登录凭据，不附带 API 组织或其他密钥。
+请求符合订阅接口要求：流式、不保存、无 system 角色。
+CLI 在 Subscription 下显示该提供商，运行前检查登录，
+并列出订阅可使用的模型。"""
 
 import logging
 from types import SimpleNamespace
@@ -32,7 +32,7 @@ def _llm(**kwargs):
     return factory.create_llm_client("chatgpt", "gpt-5.5", **factory.build_llm_kwargs(config)).get_llm()
 
 
-# --- the client ------------------------------------------------------------------
+# --- 客户端测试 ---
 
 @pytest.mark.unit
 def test_the_plan_is_reached_with_the_sign_in_never_an_api_key(signed_in, monkeypatch):
@@ -76,10 +76,10 @@ def test_a_chatgpt_tier_beside_an_openai_tier_keeps_each_credential(signed_in, m
     assert deep.openai_api_key.get_secret_value() == "sk-openai"
 
 
-# --- the CLI ---------------------------------------------------------------------
+# --- CLI 测试 ---
 
 def _menu(answers):
-    """questionary.select stand-in: records each menu and answers in turn."""
+    """模拟 questionary.select：记录菜单及依次提供的回答。"""
     shown = []
 
     def select(message, choices, **kwargs):
@@ -239,7 +239,7 @@ def test_a_remembered_openrouter_model_is_preselected(monkeypatch):
 
 @pytest.mark.unit
 def test_the_chatgpt_plan_is_the_only_provider_signed_in_to():
-    # `login`, `logout` and the pre-run check are wired to the ChatGPT sign-in; a
-    # second signed-in provider needs its own sign-in wired into them first.
+    # `login`、`logout` 和运行前检查均使用 ChatGPT 登录机制；
+    # 若未来支持其他订阅登录提供商，还需要为它们分别接入对应流程。
     from tradingagents.llm_clients.openai_client import SIGNED_IN_PROVIDERS
     assert SIGNED_IN_PROVIDERS == ("chatgpt",)

@@ -1,8 +1,7 @@
-"""Sign in with ChatGPT: the sign-in is checked, kept private, renewed once, and revoked.
+"""ChatGPT 登录测试：验证登录状态、隐私保护、单次刷新与撤销流程。
 
-OpenAI is replaced by a fake that signs ID tokens with a key made here, so every
-check of the sign-in (signature, issuer, audience, nonce, plan scope) runs for real.
-"""
+使用本地生成的密钥和模拟 OpenAI 端点签发 ID Token，
+让签名、签发者、受众、nonce 和订阅权限的验证流程真实执行。"""
 
 import base64
 import json
@@ -20,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from tradingagents.llm_clients import chatgpt_auth as auth
 
-# The suite refuses all connections; the loopback test lets 127.0.0.1 through only.
+# 测试套件默认禁止网络连接；本地回调测试仅允许访问 127.0.0.1。
 _CONNECT, _GETADDRINFO = socket.socket.connect, socket.getaddrinfo
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 CLIENT = "oaiapp_test"
@@ -55,7 +54,7 @@ class _Response:
 
 
 class FakeOpenAI:
-    """Answers the JWKS, token and revoke endpoints and records what was sent."""
+    """模拟 JWKS、token 与撤销接口，并记录请求数据。"""
 
     def __init__(self, token_body=None, status=200):
         self.posts = []
@@ -112,7 +111,7 @@ def _renewal(data):
             "id_token": _id_token(), "scope": auth.SCOPE}
 
 
-# --- the ID token ----------------------------------------------------------------
+# --- ID Token 测试 ---
 
 @pytest.mark.unit
 def test_a_genuine_id_token_is_accepted():
@@ -138,7 +137,7 @@ def test_an_id_token_signed_by_another_key_is_refused():
         auth._validated_claims(_id_token(key=stranger, nonce="n"), CLIENT, "n", _jwks()["keys"])
 
 
-# --- tokens ----------------------------------------------------------------------
+# --- Token 测试 ---
 
 @pytest.mark.unit
 def test_nobody_signed_in_is_told_how_to_sign_in(home, openai):
@@ -207,7 +206,7 @@ def test_a_renewal_for_another_account_is_refused(home, openai):
         auth.access_token()
 
 
-# --- signing in and out ------------------------------------------------------------
+# --- 登录与退出测试 ---
 
 def _nonce_of(printed):
     url = next(line for line in printed if line.startswith(auth.AUTHORIZE_URL))
