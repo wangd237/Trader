@@ -1,12 +1,10 @@
-"""What's new, for the person at the terminal: a newer release, and notices from Tauric Research.
+"""向终端用户展示更新信息，包括新版本和 Tauric Research 公告。
 
-At most once a day a background thread asks GitHub for the latest release and
-the announcements server for notices, and writes the answers to a small cache.
-The lines shown at start-up are read from that cache, so a run never waits on
-the network and news shows up on the next run. Nothing identifying is sent.
-Unattended, scripted and CI runs contact no server; set
-TRADINGAGENTS_NO_UPDATE_CHECK=1 to turn the check off.
-"""
+后台线程最多每天一次查询 GitHub 最新发布版本及公告服务，
+并将结果写入轻量缓存。启动时直接读取缓存，因此不会等待网络；
+最新消息在下次启动时显示。请求不会发送可识别用户身份的信息。
+无人值守、脚本或 CI 运行不会连接这些服务。
+设置 TRADINGAGENTS_NO_UPDATE_CHECK=1 可以完全禁用检查。"""
 
 import importlib.metadata
 import json
@@ -34,22 +32,22 @@ CHECK_EVERY = 24 * 3600
 TIMEOUT = 2.0
 SUMMARY_LIMIT = 160
 OPT_OUT = "TRADINGAGENTS_NO_UPDATE_CHECK"
-# Control characters, C0 and C1, read as spaces; invisible spaces and direction marks are dropped.
+# C0/C1 控制字符替换为空格；删除不可见空格和文字方向控制符。
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 INVISIBLE = re.compile(r"[\u061c\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def enabled() -> bool:
-    """Whether a person is at the terminal and has not turned the check off."""
+    """判断当前是否为交互式终端，且用户未关闭更新检查。"""
     at_a_terminal = bool(sys.stdin and sys.stdin.isatty() and sys.stdout and sys.stdout.isatty())
     return at_a_terminal and not os.environ.get("CI") and not os.environ.get(OPT_OUT)
 
 
-# --- the cache and the check -------------------------------------------------------
+# --- 缓存与检查 -------------------------------------------------------
 
 def read_cache() -> dict:
-    """The cache, keeping only fields of the shape this version writes."""
+    """读取缓存，只保留当前版本认可的字段结构。"""
     try:
         data = json.loads(CACHE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -66,7 +64,7 @@ def due(cache: dict, now: float) -> bool:
 
 
 def summary_of(body: str) -> str:
-    """The release's one-line summary: its first paragraph on one line (sanitised when shown)."""
+    """提取发布说明的首段并合并为单行摘要（显示时会清洗内容）。"""
     first = re.split(r"\n\s*\n", (body or "").strip(), maxsplit=1)[0]
     text = " ".join(first.split())
     if len(text) > SUMMARY_LIMIT:
@@ -75,7 +73,7 @@ def summary_of(body: str) -> str:
 
 
 def parse_notices(payload) -> list | None:
-    """The targeted notices in an announcements answer; None when it has no notices list."""
+    """从公告响应中提取定向通知；不存在通知列表时返回 None。"""
     notices = payload.get("notices") if isinstance(payload, dict) else None
     return notices if isinstance(notices, list) else None
 
@@ -86,8 +84,8 @@ def _get_json(url: str):
 
 
 def refresh(now: float | None = None) -> None:
-    """Ask for the latest release and notices and record the answers. Never raises or prints;
-    a failed check keeps what was known and is not retried for a day."""
+    """查询最新版本及公告，并记录结果。不抛出异常，也不打印消息；
+    检查失败时保留已有缓存，当天不再重试。"""
     now = time.time() if now is None else now
     cache = read_cache()
     cache["checked_at"] = now
@@ -115,12 +113,12 @@ def refresh(now: float | None = None) -> None:
 
 
 def start_background_refresh() -> None:
-    """Refresh the cache in a daemon thread when a check is due."""
+    """到达检查时间后，在守护线程中刷新缓存。"""
     if due(read_cache(), time.time()):
         threading.Thread(target=refresh, name="tradingagents-update-check", daemon=True).start()
 
 
-# --- what is shown ---------------------------------------------------------------
+# --- 更新信息展示 -------------------------------------------------------
 
 def _version(text) -> Version | None:
     try:
@@ -134,8 +132,9 @@ def _plain(text) -> str:
 
 
 def _applies(notice: dict, running: Version, today: date) -> bool:
-    """Whether a notice is for this version and unexpired; a bound or date that cannot be read
-    keeps it hidden. A notice is shown through its ``expires`` date (UTC)."""
+    """判断公告是否针对当前版本且尚未过期；
+    无法解析版本限制或日期时将其隐藏。
+    公告显示至其 ``expires`` 日期（UTC）结束。"""
     low, high = notice.get("min_version"), notice.get("max_version")
     if low is not None and ((floor := _version(low)) is None or running < floor):
         return False
@@ -151,8 +150,8 @@ def _applies(notice: dict, running: Version, today: date) -> bool:
 
 
 def messages(cache: dict, running: str, upgrade: Callable[[], str | None] = lambda: None) -> list[str]:
-    """The lines to show: a newer release with its upgrade command (``upgrade()``, asked only
-    when there is one), then the notices for this version."""
+    """生成要显示的文本行：新版本及升级命令（仅当有新版本时询问
+    ``upgrade()``），然后显示适用于当前版本的公告。"""
     current = _version(running)
     if current is None:
         return []
@@ -179,7 +178,7 @@ def messages(cache: dict, running: str, upgrade: Callable[[], str | None] = lamb
 
 
 def upgrade_command(dist=None) -> str | None:
-    """The command that upgrades this install, from how pip or uv recorded it; None when unsure."""
+    """根据 pip 或 uv 的安装记录构造升级命令；无法确定时返回 None。"""
     if os.environ.get("TRADINGAGENTS_IN_DOCKER"):
         return "git pull && docker compose build (on the host)"
     if os.name == "nt":                    # the commands below are POSIX shell
@@ -208,7 +207,7 @@ def upgrade_command(dist=None) -> str | None:
 
 
 def show(console) -> None:
-    """Print what's new from the cache, under the welcome panel."""
+    """在欢迎面板下方打印缓存中的更新信息。"""
     from rich.panel import Panel
     from rich.text import Text
 
