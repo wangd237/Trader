@@ -74,7 +74,7 @@ def unattended_gaps(flags) -> list[str]:
 
 def _check_tier_providers(main_provider: str, backend_url: str | None = None) -> None:
     """在执行前检查各模型层级实际使用的提供商（#1440）。
-    
+
     其他提供商所属的模型层级必须从对应变量获取模型，因为交互式模型列表
     只展示主提供商的模型。此处应提前检查每个实际使用的提供商
     是否有可用端点、登录状态和 API Key，并提示补齐缺少的密钥；
@@ -156,7 +156,7 @@ def _prompt_selections(prefs, flags):
 
     def thinking_value_or_prompt(env_var, config_key, label, box_title, box_body, prompt_fn):
         """返回环境变量配置的推理参数，或通过交互方式询问。
-        
+
         设置 ``env_var`` 后跳过交互式选择，直接使用环境变量
         覆盖到 DEFAULT_CONFIG 的值；这一规则与其他配置步骤的
         环境变量优先级保持一致。"""

@@ -35,14 +35,14 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 def _run_directory(config: dict, ticker: str, trade_date: str) -> Path:
     """确定本次运行的输出目录，并校验 ticker 是否可安全用作路径组件。
-    
+
     其他拼接 ticker 的路径也会先做校验；例如 ``..`` 可能使输出落到结果目录之外。"""
     return Path(config["results_dir"]) / safe_ticker_component(ticker) / trade_date
 
 
 def _announce_checkpoint_state(graph, ticker: str, trade_date: str) -> None:
     """在用户可见的位置说明本次运行是从已保存的检查点恢复，还是全新启动。
-    
+
     Graph 虽然会记录这一信息，但 CLI 没有配置日志输出，且实时视图占用了终端屏幕，因此之前用户无法看到恢复提示。"""
     if getattr(graph, "_resuming", False):
         message_buffer.add_message(
@@ -54,7 +54,7 @@ def _announce_checkpoint_state(graph, ticker: str, trade_date: str) -> None:
 
 def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
     """根据交互式选择组装运行配置，同时遵守环境变量的优先级。
-    
+
     轮数和检查点选项遵循“显式环境变量或命令行标志优先”：除非用户通过 CLI 覆盖，否则保留 DEFAULT_CONFIG 中已由环境变量设置的值。"""
     config = DEFAULT_CONFIG.copy()
     # 研究深度决定两类讨论的轮数，但显式设置的环境变量
@@ -389,7 +389,7 @@ def _yes(question: str) -> bool:
 
 def _graphical_browser():
     """返回能够在本机独立窗口中打开网页的浏览器；找不到时返回 None。
-    
+
     通过 SSH 访问时，页面位于远程机器；lynx、w3m、elinks 等终端浏览器还会占用当前终端，因此不提供这些选项。"""
     if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
         return None
@@ -417,7 +417,7 @@ def _open_page(page: Path) -> None:
 
 def _offer_reports(final_state, graph, ticker, save=None, show=None, html=None):
     """保存并展示报告目录；传入 ``save``、``show``、``html`` 时使用对应参数回答交互问题。
-    
+
     除非 ``html`` 为 False，否则保存的报告包含 HTML 页面。若用户在交互提示中选择保存，还会询问网页相关选项并提供打开入口；若命令行标志已决定是否保存，则不再询问。"""
     asked = save is None
     if asked:

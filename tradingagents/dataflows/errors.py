@@ -22,7 +22,7 @@ class VendorError(Exception):
 
 class NoMarketDataError(VendorError):
     """数据提供商未能返回指定标的的可用记录（结果为空或数据过期）。
-    
+
     同时保留用户请求的原始 ticker、实际查询的规范化 ticker，
     以及自由文本 ``detail``，方便调用者生成清晰的错误消息，
     避免将提供商专属的空字符串直接传给下游。"""
@@ -41,12 +41,12 @@ class NoMarketDataError(VendorError):
 
 class VendorUnavailableError(VendorError):
     """数据提供商因限流或请求失败而无法响应。
-    
+
     这并不表示标的没有数据；路由器应继续尝试下一提供商。"""
 
 
 class VendorNotConfiguredError(VendorError, ValueError):
     """已选择数据提供商，但缺少 API Key 或必需配置。
-    
+
     该异常也继承 ``ValueError``，以兼容现有捕获逻辑；
     路由层则将其视为“提供商不可用”。"""

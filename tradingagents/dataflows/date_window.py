@@ -21,7 +21,7 @@ def to_utc(dt: datetime) -> datetime:
 
 def in_window(pub_dt: datetime | None, start_dt: datetime, end_dt: datetime) -> bool:
     """判断记录是否处于左闭右开窗口 ``[start, end + 1 day)`` 中。
-    
+
     ``pub_dt`` 为 None 表示没有日期；只有窗口延伸到当前时才保留。"""
     end = to_utc(end_dt)
     if pub_dt is not None:
@@ -43,12 +43,12 @@ def coverage_gap(
     dates, start_date: str, end_date: str, source: str, subject: str
 ) -> str | None:
     """为数据源尚未完整覆盖的窗口生成占位提示；已覆盖则返回 None。
-    
+
     Yahoo 新闻、Reddit 和 StockTwits 无论请求什么时间范围，
     通常只返回最新数据；若某个窗口根本未被它们覆盖，
     就不能把“没有找到”当成该窗口确实“没有新闻”。
     只有覆盖范围包含窗口首日，且窗口不晚于今天，空结果才代表真实缺失。
-    
+
     ``dates`` 包含返回记录的时间戳，对固定回溯窗口的数据源
     还包含回溯起点。仅当数据按时间倒序且连续返回时，最早记录
     才能作为覆盖边界；合并或按相关性排序的结果不提供 dates，
@@ -73,7 +73,7 @@ def _parse(date: str | None) -> datetime | None:
 
 def as_of(requested: str | None, trade_date: str) -> str | None:
     """确定工具实际服务的日期：允许使用模型传入日期，但不能晚于分析日期。
-    
+
     模型可能省略日期或填入今天，而非历史分析日期，从而绕开工具内部的
     时点限制。在 Graph 外直接调用、``trade_date`` 为空时，原样透传请求。"""
     if not trade_date:
@@ -84,7 +84,7 @@ def as_of(requested: str | None, trade_date: str) -> str | None:
 
 def as_of_window(start_date: str, end_date: str, trade_date: str) -> tuple[str, str]:
     """返回 ``[start, end]`` 窗口，并将结束日期限制在分析日期之前。
-    
+
     若整个窗口位于分析日期之后，则保持长度并整体前移。
     无法解析的结束日期按分析日期处理；起始日期无法解析时
     不能猜测窗口，应抛出 ValueError 供调用者反馈（#1476）。"""
@@ -100,7 +100,7 @@ def as_of_window(start_date: str, end_date: str, trade_date: str) -> tuple[str, 
 
 def withhold_live_profile(as_of_date: str | None, label: str) -> str | None:
     """历史运行不能使用当前公司概况时返回提示，否则返回 None。
-    
+
     yfinance ``Ticker.info``、Alpha Vantage ``OVERVIEW`` 等公司概况接口
     没有历史版本信息；公司名称、行业和板块都可能因更名或重分类变化。
     将今天的资料用于历史日期会产生决策后的信息泄漏（#1300）。
@@ -123,7 +123,7 @@ def withhold_live_profile(as_of_date: str | None, label: str) -> str | None:
 
 def withhold_undisclosed_trades(as_of_date: str | None, label: str) -> str | None:
     """内部人交易没有披露日期且不能安全用于历史分析时返回提示，否则返回 None。
-    
+
     Yahoo 与 Alpha Vantage 等提供商可能只记录交易发生时间，
     无法确认何时公开；Form 4 最晚可在两个工作日后提交。
     因此历史运行不能直接使用可能尚未披露的交易记录。"""
@@ -140,7 +140,7 @@ def withhold_undisclosed_trades(as_of_date: str | None, label: str) -> str | Non
 
 def withhold_undated_statements(as_of_date: str | None, label: str, title: str) -> str | None:
     """财务报表缺少披露日期且不能用于历史分析时返回提示，否则返回 None。
-    
+
     Yahoo、Alpha Vantage 的报表日期通常表示所属财务期间，
     而非实际公开时间；公司可能在期末数周后才披露。
     在此间隔内运行回测会看到当时尚不存在的数据。

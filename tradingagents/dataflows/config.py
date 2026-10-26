@@ -32,7 +32,7 @@ def _merge(base: dict, config: dict) -> dict:
 
 def set_config(config: dict):
     """使用自定义值更新配置。
-    
+
     字典类型字段（如 ``data_vendors``）只合并一层，因此局部更新
     ``{"data_vendors": {"core_stock_apis": "alpha_vantage"}}``
     会保留默认配置中的其他数据类别；标量字段则直接覆盖。"""
@@ -52,7 +52,7 @@ def run_config(config: dict):
 
 def run_config_context(config: dict) -> Context:
     """在上下文内的所有配置读取都使用 ``config`` 覆盖默认配置。
-    
+
     适用于步骤之间会让出控制权的执行过程：普通 ``run_config`` 块
     可能在调用者持有结果时仍保持开启，不便表达这种执行边界。"""
     context = copy_context()

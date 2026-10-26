@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def iter_grid(start_date: str, end_date: str, every_n_days: int = 1) -> list[str]:
     """从 ``start_date`` 开始生成分析日期，但绝不超过今天。
-    
+
     未来日期没有可用于结算的结果，Graph 也拒绝执行，
     因此网格在今天停止，避免生成无法评分的任务。"""
     start, end = _canonical(start_date), _canonical(end_date)
@@ -57,7 +57,7 @@ def _canonical(date: str) -> datetime:
 
 def _alpha(entry: dict) -> float | None:
     """返回已结算记录的 Alpha 收益率；未结算时返回 None。
-    
+
     日志中的百分比只保留一位小数，因此这里的聚合精度为
     0.1 个百分点，而非原始行情精度。"""
     text = (entry.get("alpha") or "").strip().rstrip("%")
@@ -129,7 +129,7 @@ def run_backtest(
     progress: Callable[[int, int, str, str], None] | None = None,
 ) -> BacktestResult:
     """对网格中的每个 ticker 和日期执行分析，写入本次独立的 Memory Log。
-    
+
     不能污染实时运行使用的日志，否则批量回测会向未来真实运行注入
     大量历史上下文。已存在于本次日志的网格单元会跳过，
     因此中断后重新执行即可继续。在每个实际执行的单元开始前调用

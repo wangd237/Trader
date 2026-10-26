@@ -70,7 +70,7 @@ def analyze(
     ),
 ):
     """运行一次分析；直接执行 `trader` 默认调用此命令。
-    
+
     命令行标志可代替交互输入；若同时通过 TRADINGAGENTS_* 环境变量
     提供提供商、模型、研究深度和输出语言，则整个过程无需提问。"""
     if ctx.invoked_subcommand is not None:
