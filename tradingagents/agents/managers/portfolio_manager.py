@@ -1,12 +1,4 @@
-"""Portfolio Manager: synthesises the risk-analyst debate into the final decision.
-
-Uses LangChain's ``with_structured_output`` so the LLM produces a typed
-``PortfolioDecision`` directly, in a single call. Its rating is the run's
-``final_rating``, and the decision is rendered to markdown as
-``final_trade_decision`` for the memory log, CLI display and saved reports.
-When a provider does not expose structured output, the agent falls back to
-free-text generation and the rating is read from that text.
-"""
+"""Portfolio Manager：综合风险辩论，生成最终交易决策。"""
 
 from __future__ import annotations
 
@@ -75,8 +67,7 @@ Write these sections, in this order, starting with the rating on its own line:
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 
-        # The typed rating is the decision; the rendered text only carries it.
-        # Read back from text, a rating the thesis quotes could replace it.
+        # 结构化评级才是正式决策，渲染文本只是结果的展示形式。
         decision = invoke_structured(structured_llm, prompt, "Portfolio Manager")
         if decision is not None:
             final_trade_decision = render_pm_decision(decision)
