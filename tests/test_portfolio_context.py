@@ -1,11 +1,9 @@
-"""Portfolio context: what the caller holds, threaded into the decision agents.
+"""持仓上下文：将调用方已有持仓传递给决策 Agent。
 
-Decisions were made with no knowledge of the current book, so "add to a full
-position" and "open a new one" read alike. The context is optional and carries
-three distinct states: a position, a flat book, and no context at all. Nothing
-may present the third as the second. The research team stays blind so the bull
-and bear cases are not anchored by the caller's position.
-"""
+过去 Agent 不知道现有仓位，无法区分“满仓加仓”和“全新开仓”。
+上下文为可选输入，需要区分持有仓位、明确空仓、完全未提供信息。
+最后一种不能假定为空仓；研究团队仍不读取持仓，避免多空论证
+被调用方当前仓位锚定。"""
 
 from __future__ import annotations
 
@@ -118,7 +116,7 @@ def test_checkpoint_signature_changes_with_the_portfolio(tmp_path):
     ("tradingagents.agents.risk_mgmt.neutral_debator", "create_neutral_debator"),
 ])
 def test_decision_agents_see_the_portfolio(module, factory, monkeypatch):
-    """The prompt each decision agent sends carries the portfolio block."""
+    """每个决策 Agent 的 Prompt 都应携带持仓区块。"""
     import importlib
 
     mod = importlib.import_module(module)
@@ -161,11 +159,8 @@ def test_research_team_stays_blind_to_the_portfolio():
 
 @pytest.mark.unit
 def test_completed_run_clears_the_checkpoint_it_wrote(tmp_path, monkeypatch):
-    """The clear must key on the same portfolio the run was checkpointed under.
-
-    Keyed on a different one it deletes nothing, and the next identical call
-    resumes the finished thread and returns the old decision without running.
-    """
+    """清理检查点时必须使用与生成检查点相同的持仓签名。
+    否则旧检查点未被清除，下次相同调用可能直接恢复旧决策。"""
     import tradingagents.graph.trading_graph as tg
 
     graph = _bare_graph(tmp_path)
@@ -189,8 +184,8 @@ def test_completed_run_clears_the_checkpoint_it_wrote(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_research_layer_sizes_against_a_standard_allocation():
-    """The research team is blind to the book, so its plan cannot promise
-    position-relative sizing: it sizes against a standard allocation instead."""
+    """研究团队不读取已有仓位，研究计划不能承诺相对仓位的加减仓比例，
+    只能按照标准资产配置讨论。"""
     from tradingagents.agents.schemas import ResearchPlan
 
     description = ResearchPlan.model_fields["strategic_actions"].description
@@ -200,7 +195,7 @@ def test_research_layer_sizes_against_a_standard_allocation():
 
 @pytest.mark.unit
 def test_partial_portfolio_states_only_what_it_was_given():
-    """Cash omitted is not cash zero; the line is absent rather than invented."""
+    """未提供现金余额不代表余额为零；应省略对应行，不能编造数值。"""
     text = PortfolioContext.model_validate({"positions": [{"ticker": "AAPL", "quantity": 5}]}).render("AAPL")
     assert "Cash" not in text
     assert "5" in text

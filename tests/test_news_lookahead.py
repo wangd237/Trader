@@ -1,11 +1,8 @@
-"""yfinance news must not leak future-dated (or undated, in a backtest) articles
-into a historical window.
+"""yfinance 新闻不能向历史窗口泄漏未来文章，回测时也不能使用无日期文章。
 
-Regressions for #992 (flat articles bypassed the date filter), #1007 (global
-news injected future articles), #993 (empty-after-filter returned a blank body),
-and #1126 (inclusive upper bound leaked the midnight-after article; host-local
-timestamp parsing made filtering machine-dependent).
-"""
+回归 #992（扁平新闻绕过日期过滤）、#1007（全球新闻泄漏未来内容）、
+#993（过滤为空后返回空正文）、#1126（结束日期次日零点被误纳入，
+及宿主时区导致筛选结果不一致）。"""
 from datetime import UTC, datetime
 
 import pytest
@@ -15,14 +12,14 @@ from tradingagents.dataflows.date_window import in_window
 
 
 def _epoch(date_str):
-    """Epoch seconds for UTC midnight of ``date_str`` (host-timezone independent)."""
+    """将 ``date_str`` 的 UTC 零点转换为 Unix 秒数，不依赖宿主时区。"""
     return int(datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC).timestamp())
 
 
 @pytest.mark.unit
 def test_flat_article_publish_time_is_parsed():
-    # #992: flat articles now carry a pub_date (was always None -> unfilterable).
-    # #1126: parsed as UTC-aware, so the date can't shift with the host timezone.
+    # #992：扁平文章现在包含 pub_date；此前一直为 None，无法过滤。
+    # #1126：日期按带时区 UTC 解析，避免随宿主时区偏移。
     data = ynews._extract_article_data(
         {"title": "X", "publisher": "P", "link": "l", "providerPublishTime": _epoch("2025-05-09")}
     )
@@ -44,15 +41,15 @@ def test_window_excludes_future_and_undated_in_backtest():
 
 @pytest.mark.unit
 def test_window_keeps_undated_in_live_window():
-    # Live window (reaches today): undated articles can't be "future", so keep them.
+    # 实时窗口延伸到今天，保留无日期文章。
     now = datetime.now(UTC)
     assert in_window(None, now, now) is True
 
 
 @pytest.mark.unit
 def test_upper_bound_is_exclusive():
-    # #1126: an article stamped exactly midnight AFTER end_date leaked in under
-    # the old inclusive bound; the whole of end_date itself must still be kept.
+    # #1126：结束日期次日零点的文章不能进入历史窗口；
+    # 结束日期当天的文章仍应完整保留。
     start = datetime(2025, 5, 1)
     end = datetime(2025, 5, 9)
     midnight_after = datetime(2025, 5, 10, 0, 0, 0, tzinfo=UTC)
@@ -63,8 +60,8 @@ def test_upper_bound_is_exclusive():
 
 @pytest.mark.unit
 def test_offset_aware_timestamp_is_converted_not_truncated():
-    # #1126: 2025-05-10T01:00+05:00 is really 2025-05-09T20:00Z -> inside the
-    # window. Stripping tzinfo (old behavior) misread it as 05-10 and dropped it.
+    # #1126：2025-05-10T01:00+05:00 实际对应 05-09 20:00Z，应在窗口内。
+    # 直接去掉时区会错误地按 05-10 过滤掉。
     start = datetime(2025, 5, 1)
     end = datetime(2025, 5, 9)
     aware = datetime.fromisoformat("2025-05-10T01:00:00+05:00")
@@ -73,7 +70,7 @@ def test_offset_aware_timestamp_is_converted_not_truncated():
 
 @pytest.mark.unit
 def test_global_news_future_flat_article_excluded(monkeypatch):
-    # #1007: a flat, future-dated global article must not appear in a historical run.
+    # #1007：未来日期的扁平全球新闻不能出现在历史运行中。
     future_article = {"title": "FUTURE EVENT", "publisher": "P", "link": "l",
                       "providerPublishTime": _epoch("2025-06-01")}
     past_article = {"title": "PAST EVENT", "publisher": "P", "link": "l",
@@ -91,7 +88,7 @@ def test_global_news_future_flat_article_excluded(monkeypatch):
 
 @pytest.mark.unit
 def test_global_news_empty_after_filter_is_informative(monkeypatch):
-    # #993: everything filtered out -> a clear message, not a blank-bodied report.
+    # #993：全部文章被过滤后，应明确说明原因，而不是返回空正文。
     only_future = {"title": "FUTURE", "publisher": "P", "link": "l",
                    "providerPublishTime": _epoch("2025-06-01")}
 
@@ -102,15 +99,13 @@ def test_global_news_empty_after_filter_is_informative(monkeypatch):
     monkeypatch.setattr(ynews.yf, "Search", FakeSearch)
     out = ynews.get_global_news_yfinance("2025-05-09", look_back_days=7, limit=10)
     assert "###" not in out  # no empty article body
-    # Only a later article came back, so the feed does not reach this window.
+    # 只返回了更晚的文章，说明该数据流未覆盖请求窗口。
     assert "unavailable" in out and "not an absence" in out
 
 
 def _ticker_with(articles, monkeypatch, search_news=(), search_quotes=("AAPL",)):
-    """A quote feed answering ``articles``, and a search answering the rest.
-
-    By default the search knows the symbol but has no articles, i.e. Yahoo answered.
-    """
+    """模拟报价新闻流返回 ``articles``，搜索接口负责其余文章。
+    默认搜索能识别 ticker，但没有相关新闻，表示 Yahoo 确实响应。"""
     class FakeTicker:
         def __init__(self, *a, **k):
             pass
@@ -133,8 +128,8 @@ def _ticker_with(articles, monkeypatch, search_news=(), search_quotes=("AAPL",))
 
 @pytest.mark.unit
 def test_ticker_news_window_before_feed_coverage_is_unavailable(monkeypatch):
-    # Yahoo serves only recent articles: a historical window gets none of them,
-    # which must read as "cannot answer", not "no news happened".
+    # Yahoo 只提供近期文章，不能把历史窗口没有返回新闻
+    # 当成该时期确实没有新闻。
     recent = [{"title": "RECENT", "publisher": "P", "link": "l",
                "providerPublishTime": _epoch("2026-09-10")}]
     _ticker_with(recent, monkeypatch)
@@ -186,7 +181,7 @@ def test_ticker_news_empty_feed_for_a_past_window_is_unavailable(monkeypatch):
 
 @pytest.mark.unit
 def test_ticker_news_null_feed_is_handled(monkeypatch):
-    # Yahoo can return None instead of a list; that is unavailability, not a crash.
+    # Yahoo 也可能返回 None 而非列表，应表示数据不可用而非程序崩溃。
     from tradingagents.dataflows.errors import VendorUnavailableError
 
     _ticker_with(None, monkeypatch)
@@ -257,8 +252,8 @@ def test_a_yahoo_news_outage_moves_to_the_next_configured_vendor(monkeypatch):
 
 @pytest.mark.unit
 def test_search_results_never_count_as_an_absence_of_news(monkeypatch):
-    # Search returns a sparse, relevance-picked sample: nothing in a window it
-    # reaches is still no proof that no news was published.
+    # 搜索结果只是按相关性抽取的稀疏样本，即使覆盖该窗口，
+    # 也不能证明没有返回文章就等于当时没有新闻。
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     _ticker_with([], monkeypatch, search_news=[
         _tagged("NEWER", today, "AAPL"), _tagged("OLDER", "2026-01-05", "AAPL"),
@@ -271,8 +266,8 @@ def test_search_results_never_count_as_an_absence_of_news(monkeypatch):
 
 @pytest.mark.unit
 def test_a_symbol_yahoo_has_no_articles_for_is_left_to_the_next_vendor(monkeypatch):
-    # With its quote feed down, Yahoo serving no article about a symbol it knows
-    # (every non-US listing today) says nothing about the company's news.
+    # 报价流异常时，Yahoo 未返回某标的的新闻
+    # 并不能证明该公司没有相关新闻。
     from tradingagents.dataflows.errors import VendorUnavailableError
 
     today = datetime.now(UTC).strftime("%Y-%m-%d")
@@ -321,8 +316,8 @@ def test_global_news_empty_feed_for_a_past_window_is_unavailable(monkeypatch):
 
 @pytest.mark.unit
 def test_global_news_does_not_infer_coverage_from_a_stale_search_hit(monkeypatch):
-    # Global news merges fuzzy searches; one old hit before the window says
-    # nothing about the days in between, so the window stays unavailable.
+    # 全球新闻合并了多次模糊搜索；窗口之前的一条旧文章
+    # 不能证明中间每一天的历史内容已经覆盖。
     stale = {"title": "STALE", "publisher": "P", "link": "l", "providerPublishTime": _epoch("2025-01-01")}
     fresh = {"title": "FRESH", "publisher": "P", "link": "l", "providerPublishTime": _epoch("2025-06-01")}
 
@@ -347,11 +342,8 @@ def test_coverage_gap_future_window_is_unavailable():
 
 @pytest.mark.unit
 def test_out_of_window_articles_do_not_consume_the_article_budget(monkeypatch):
-    """The limit counts articles the run may see, not candidates fetched (#1356).
-
-    Out-of-window items were counted first, so they filled the budget, stopped
-    the remaining searches, and the in-window news was reported as absent.
-    """
+    """数量上限应计算本次运行允许读取的文章，而非抓取候选数（#1356）。
+    以前窗口外文章占满预算，使窗口内文章被误报为不存在。"""
     stale = [{"title": f"OLD {i}", "publisher": "P", "link": "l",
               "providerPublishTime": _epoch("2025-01-01")} for i in range(2)]
     wanted = {"title": "IN WINDOW", "publisher": "P", "link": "l",
@@ -392,7 +384,7 @@ def test_the_article_limit_still_caps_what_is_returned(monkeypatch):
 @pytest.mark.unit
 @pytest.mark.parametrize("field", ["title", "summary", "provider", "canonicalUrl", "pubDate"])
 def test_an_article_with_a_null_field_is_read_with_its_default(field):
-    """Yahoo sends some fields as null rather than leaving them out (#1458)."""
+    """Yahoo 可能将某些字段设为 null，而非直接省略（#1458）。"""
     content = {"title": "T", "summary": "S", "provider": {"displayName": "P"},
                "canonicalUrl": {"url": "https://x"}, "pubDate": "2026-09-22T10:00:00Z", field: None}
     data = ynews._extract_article_data({"content": content})

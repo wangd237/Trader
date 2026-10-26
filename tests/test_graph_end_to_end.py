@@ -1,9 +1,8 @@
-"""The whole graph, end to end, with scripted models and no network.
+"""使用脚本化模型、不联网，执行整个 Graph 的端到端测试。
 
-Every tool-using analyst calls each of its tools once through the vendor router,
-the debates and managers run, and the decision is parsed and logged. This pins
-the wiring: a restructure that drops a node, a tool or an edge fails here.
-"""
+每个分析师通过数据路由器各调用其工具一次，随后执行辩论与经理节点，
+最终解析并记录决策。测试用于固定节点、工具及边的连接关系，
+重构时若意外遗漏某个部分就应失败。"""
 
 from __future__ import annotations
 
@@ -27,15 +26,15 @@ from tradingagents.graph import trading_graph
 
 TRADE_DATE = "2026-01-09"
 
-# Enough for every free-text reader: the PM's labelled rating and the trader's
-# closing proposal line.
+# 为所有自由文本解析器提供足够信息：PM 的明确评级标签，
+# 以及 Trader 的最终交易提案结尾行。
 TEXT = "Report.\n\n**Rating**: Overweight\n\nFINAL TRANSACTION PROPOSAL: **BUY**"
 
 STRUCTURED = {
     schemas.ResearchPlan: schemas.ResearchPlan(
         recommendation=schemas.PortfolioRating.OVERWEIGHT, rationale="r", strategic_actions="a"),
     schemas.TraderProposal: schemas.TraderProposal(action=schemas.TraderAction.BUY, reasoning="r"),
-    # The thesis quotes another party's rating; the decision is still the PM's own.
+    # 投资论点引用了别人的评级，但最终决策仍应以 PM 自身评级为准。
     schemas.PortfolioDecision: schemas.PortfolioDecision(
         rating=schemas.PortfolioRating.OVERWEIGHT, executive_summary="s",
         investment_thesis="Street consensus rating: Buy (28 of 35 analysts)."),
@@ -48,7 +47,7 @@ ARGS = {"symbol": "NVDA", "ticker": "NVDA", "curr_date": TRADE_DATE, "start_date
 
 
 class ScriptedModel(BaseChatModel):
-    """Calls every bound tool once, then answers with TEXT."""
+    """每个绑定工具调用一次，然后输出 TEXT。"""
 
     structured: bool = False
     tools: tuple = ()
@@ -101,7 +100,7 @@ class _Client:
 
 @pytest.fixture
 def offline(monkeypatch, tmp_path):
-    """Every vendor answers offline; returns the set of router methods called."""
+    """所有提供商离线返回结果，并收集被调用的路由方法。"""
     called: set[str] = set()
     for method, vendors in router.VENDOR_METHODS.items():
         for vendor in vendors:
@@ -161,14 +160,14 @@ def test_an_interrupted_run_resumes_from_its_checkpoint(tmp_path, monkeypatch, o
     resumed_calls = len(model.calls) - calls_before
     full_run = ScriptedModel()
     _graph(tmp_path / "fresh", monkeypatch, full_run).propagate("NVDA", TRADE_DATE)
-    # The resumed run makes only the calls the interrupted one had not completed.
+    # 恢复后的运行只应执行中断前尚未完成的调用。
     assert resumed_calls == len(full_run.calls) - (model.fail_at - 1)
 
 
 @pytest.mark.unit
 def test_a_graph_reused_across_runs_keeps_no_run_state(tmp_path, monkeypatch, offline):
-    """A backtest reuses one graph over its whole grid; holding every run's full
-    state would grow without bound."""
+    """回测会在整个任务网格中复用 Graph；若保存每轮完整状态，
+    内存占用会随任务数无限增长。"""
     graph = _graph(tmp_path, monkeypatch, ScriptedModel())
     for trade_date in ("2026-01-08", TRADE_DATE):
         graph.propagate("NVDA", trade_date)
@@ -191,7 +190,7 @@ def test_the_analysts_run_at_the_same_time(tmp_path, monkeypatch, offline):
 
 @pytest.mark.unit
 def test_a_debug_run_prints_the_analysts_work_and_reaches_the_same_decision(tmp_path, monkeypatch, offline, capsys):
-    """Debug mode streams the analysts' own graphs, so their tool calls still print."""
+    """调试模式流式执行分析师各自的子图，工具调用也应显示。"""
     graph = _graph(tmp_path, monkeypatch, ScriptedModel(), debug=True)
 
     state, signal = graph.propagate("NVDA", TRADE_DATE)
@@ -204,8 +203,8 @@ def test_a_debug_run_prints_the_analysts_work_and_reaches_the_same_decision(tmp_
 
 @pytest.mark.unit
 def test_each_report_streams_as_soon_as_its_analyst_files_it(tmp_path, monkeypatch, offline):
-    """The main state takes the analysts' reports only when the slowest one is
-    done; the CLI shows each report, and stops each clock, as it lands."""
+    """顶层状态要等所有分析师完成才合并报告；
+    CLI 则应在各报告完成时立即展示，并分别停止计时。"""
     graph = _graph(tmp_path, monkeypatch, ScriptedModel())
     reports = ("market_report", "sentiment_report", "news_report", "fundamentals_report")
 
@@ -218,8 +217,8 @@ def test_each_report_streams_as_soon_as_its_analyst_files_it(tmp_path, monkeypat
 
 @pytest.mark.unit
 def test_a_streamed_run_reads_its_own_graph_config(tmp_path, monkeypatch, offline):
-    """The CLI streams the run; a process-wide config set elsewhere must not reach
-    its tools, and the graph's config must not reach the caller between steps."""
+    """CLI 使用流式运行；其他地方修改进程全局配置后，
+    不能影响本 Graph 的工具调用，Graph 的配置也不能泄漏回调用方。"""
     from tradingagents.dataflows.config import get_config, set_config
 
     graph = _graph(tmp_path, monkeypatch, ScriptedModel(), output_language="French")
@@ -236,7 +235,7 @@ def test_a_streamed_run_reads_its_own_graph_config(tmp_path, monkeypatch, offlin
 
 
 class LoopingModel(ScriptedModel):
-    """Calls a tool on every turn it is offered one (#1420)."""
+    """只要有工具可用，模型每轮都会调用工具（#1420）。"""
 
     tool_turns: list = Field(default_factory=list)    # shared across bound copies
     last_turns: list = Field(default_factory=list)    # histories of the turns offered no tools
@@ -255,7 +254,7 @@ class LoopingModel(ScriptedModel):
 
 @pytest.mark.unit
 def test_an_analyst_that_keeps_calling_tools_writes_its_report_at_the_limit(tmp_path, monkeypatch, offline):
-    """A model that does not stop calling tools must not end the run (#1420)."""
+    """不停调用工具的模型不能阻止整个运行正常收尾（#1420）。"""
     model = LoopingModel(structured=True)
     graph = _graph(tmp_path, monkeypatch, model, max_tool_rounds=3)
 
@@ -269,8 +268,8 @@ def test_an_analyst_that_keeps_calling_tools_writes_its_report_at_the_limit(tmp_
 
 @pytest.mark.unit
 def test_the_last_turn_is_offered_no_tools_and_reads_its_tool_results_as_text(tmp_path, monkeypatch, offline):
-    """Offered tools, a model may call one whatever it is told; a history holding
-    tool calls may be refused by a provider when no tools are bound."""
+    """只要工具仍绑定，模型可能忽略停止指令继续调用；
+    但移除工具后，部分提供商又拒绝包含历史工具调用的消息。"""
     model = LoopingModel(structured=True)
     graph = _graph(tmp_path, monkeypatch, model, max_tool_rounds=2)
 
@@ -291,7 +290,7 @@ def test_a_tool_limit_the_recursion_limit_cannot_hold_is_refused(tmp_path, monke
 
 
 class TimedModel(ScriptedModel):
-    """ScriptedModel that records each call's graph step, prompt and timing."""
+    """记录每次调用所处 Graph 步骤、Prompt 和时间的脚本化模型。"""
 
     seen: list = Field(default_factory=list)    # shared across bound copies
 
@@ -332,7 +331,7 @@ def test_past_decisions_settle_alongside_the_analysts(tmp_path, monkeypatch, off
 
 @pytest.mark.unit
 def test_a_settlement_failure_is_noted_and_the_run_goes_on(tmp_path, monkeypatch, offline):
-    """The analysts have spent their tokens by the time the join waits on settlement."""
+    """Graph 汇合节点等待结算时，分析师已耗尽其模型调用预算。"""
     from tradingagents.reporting import write_report_tree
 
     graph = _graph(tmp_path, monkeypatch, ScriptedModel(structured=True))
@@ -351,7 +350,7 @@ def test_a_settlement_failure_is_noted_and_the_run_goes_on(tmp_path, monkeypatch
 
 @pytest.mark.unit
 def test_the_run_settles_other_tickers_due_decisions_too(tmp_path, monkeypatch, offline):
-    """A ticker a scheduler stopped analysing still gets its decisions settled (#1445)."""
+    """即使调度器停止分析某个 ticker，其历史决策仍需结算（#1445）。"""
     from tradingagents.memory import settlement
 
     graph = _graph(tmp_path, monkeypatch, ScriptedModel(structured=True))
@@ -367,8 +366,8 @@ def test_the_run_settles_other_tickers_due_decisions_too(tmp_path, monkeypatch, 
 
 @pytest.mark.unit
 def test_the_memory_step_reads_lessons_as_of_the_trade_date_and_settles_once(tmp_path, monkeypatch, offline):
-    """A past-dated run reads only lessons known by its date (#1251); a resumed run
-    that re-runs the step settles nothing twice."""
+    """历史日期运行只读取当时已知的经验（#1251）；
+    从检查点恢复时也不能重复结算同一决策。"""
     from tradingagents.memory import settlement
 
     graph = _graph(tmp_path, monkeypatch, ScriptedModel(structured=True))
