@@ -1,13 +1,9 @@
-"""FRED (Federal Reserve Economic Data) macro vendor.
+"""FRED（美联储经济数据）宏观数据提供商。
 
-Fetches macroeconomic time series — policy rates, Treasury yields, inflation,
-labor, growth — from the St. Louis Fed's free API. Used by the news analyst to
-ground macro commentary in actual numbers rather than headlines alone.
-
-A free API key (https://fred.stlouisfed.org/docs/api/api_key.html) is read from
-``FRED_API_KEY``; if it is unset the vendor raises ``FredNotConfiguredError`` so
-the routing layer treats it as "unavailable" rather than a hard crash.
-"""
+通过圣路易斯联储免费 API 获取政策利率、国债收益率、通胀、
+劳动力及经济增长时间序列，供新闻分析师依据真实数字讨论宏观环境。
+免费 API Key 通过 ``FRED_API_KEY`` 提供；未设置时抛出
+``FredNotConfiguredError``，由路由层按提供商不可用处理。"""
 import logging
 import os
 from datetime import datetime, timedelta
@@ -21,28 +17,26 @@ logger = logging.getLogger(__name__)
 
 FRED_API_BASE = "https://api.stlouisfed.org/fred"
 
-# FRED's realtime clock runs on US Central (St. Louis Fed). It rejects a
-# realtime date in its own future with a 400, so the vintage pin is clamped to
-# this rather than the caller's local date (#1275). pytz (already a dependency)
-# bundles its own tz database, so this works where system tzdata is absent.
+# FRED 实时日期按美国中部时区计算，未来日期会返回 400。
+# 因此版本日期以 FRED 当地今天为上限，而非调用方本地时间（#1275）。
+# 依赖中的 pytz 自带时区库，不要求系统安装 tzdata。
 FRED_TZ = pytz.timezone("America/Chicago")
 
-# Network timeout (seconds) so a stalled request can't hang the agents,
-# mirroring the Alpha Vantage client.
+# 网络超时秒数，防止请求卡住 Agent，与 Alpha Vantage 客户端一致。
 REQUEST_TIMEOUT = 30
 
-# Default trailing window when the caller does not specify one. A year captures
-# the trend and the year-over-year base for most monthly/quarterly series.
+# 未指定回溯窗口时采用的默认时长。
+# 一年通常能覆盖月度或季度指标的走势及同比比较基期。
 DEFAULT_LOOKBACK_DAYS = 365
 
-# Rows cap for the rendered table: recent values matter most for a decision, and
-# daily series (yields, VIX) over a long window would otherwise flood context.
+# 报告表格行数上限：近期数据对决策更重要，
+# 限制长窗口内每日国债收益率或 VIX 数据占用的上下文。
 MAX_ROWS = 40
 
-# Curated human-friendly aliases -> FRED series IDs. Anything not listed is used
-# verbatim as a raw FRED series ID, so power users are never limited to this set.
+# 维护易读别名到 FRED ID 的映射表。列表之外仍允许使用原始 ID，
+# 不限制熟悉 FRED 的用户。
 MACRO_SERIES = {
-    # Policy rate & Treasury yields
+    # 政策利率与美国国债收益率。
     "fed_funds_rate": "FEDFUNDS",
     "federal_funds_rate": "FEDFUNDS",
     "fed_funds": "FEDFUNDS",
@@ -51,34 +45,34 @@ MACRO_SERIES = {
     "30y_treasury": "DGS30",
     "10y_2y_spread": "T10Y2Y",
     "yield_curve": "T10Y2Y",
-    # Inflation
+    # 通货膨胀指标。
     "cpi": "CPIAUCSL",
     "core_cpi": "CPILFESL",
     "pce": "PCEPI",
     "core_pce": "PCEPILFE",
     "inflation_expectations": "T10YIE",
-    # Growth & output
+    # 经济增长与产出。
     "real_gdp": "GDPC1",
     "gdp": "GDP",
     "industrial_production": "INDPRO",
-    # Labor
+    # 劳动力市场。
     "unemployment_rate": "UNRATE",
     "unemployment": "UNRATE",
     "nonfarm_payrolls": "PAYEMS",
     "payrolls": "PAYEMS",
     "initial_claims": "ICSA",
-    # Money & markets
+    # 货币与金融市场。
     "m2": "M2SL",
     "money_supply": "M2SL",
     "vix": "VIXCLS",
     "dollar_index": "DTWEXBGS",
-    # Sentiment & housing
+    # 消费者信心与住房市场。
     "consumer_sentiment": "UMCSENT",
     "housing_starts": "HOUST",
     "retail_sales": "RSAFS",
-    # Euro area (for non-US tickers such as Euronext .PA): FRED mirrors the ECB
-    # policy rates, Eurostat HICP and GDP, and OECD long-term government yields,
-    # so the same vintage pinning keeps euro-area data point-in-time.
+    # 欧元区数据（例如欧洲上市的 .PA 标的）：FRED 同时收录
+    # 欧洲央行利率、欧盟统计局 HICP/GDP 及 OECD 长期国债收益率。
+    # 同样通过固定数据版本日期避免历史信息泄漏。
     "ecb_deposit_rate": "ECBDFR",
     "ecb_main_refi_rate": "ECBMRRFR",
     "euro_hicp": "CP0000EZ19M086NEST",
@@ -91,16 +85,13 @@ MACRO_SERIES = {
 
 
 class FredNotConfiguredError(VendorNotConfiguredError):
-    """Raised when FRED is selected but no API key is configured.
-
-    A VendorNotConfiguredError (and thus still a ValueError), so the routing
-    layer's "vendor unavailable" handling and existing ValueError callers both
-    keep working.
-    """
+    """选择 FRED 却未配置密钥时抛出的异常。
+    继承 VendorNotConfiguredError（也是 ValueError），
+    兼容现有路由降级和旧版错误捕获逻辑。"""
 
 
 def get_api_key() -> str:
-    """Retrieve the FRED API key from the environment."""
+    """从环境变量获取 FRED API Key。"""
     api_key = os.getenv("FRED_API_KEY")
     if not api_key:
         raise FredNotConfiguredError(
@@ -111,19 +102,17 @@ def get_api_key() -> str:
 
 
 def _resolve_series_id(indicator: str) -> str:
-    """Map a friendly alias to a FRED series ID, or pass a raw ID through.
+    """将易读别名映射为 FRED 序列 ID；已有合法 ID 则直接透传。
 
-    Raises ``ValueError`` when the input is neither a known alias nor a plausible
-    series ID — typically a descriptive phrase the LLM passed instead (e.g.
-    "bank of japan rate"). FRED IDs are short and alphanumeric, so this rejects
-    it up front with guidance rather than letting it 400 the API.
-    """
+    既不属于已知别名又不符合 FRED ID 形式时抛出 ValueError，
+    例如模型给出 "bank of japan rate" 这样的描述性短语。
+    提前反馈可避免让非法参数请求 FRED 并得到 HTTP 400。"""
     key = indicator.strip().lower().replace(" ", "_").replace("-", "_")
     if key in MACRO_SERIES:
         return MACRO_SERIES[key]
     candidate = indicator.strip().upper()
-    # FRED series IDs never contain whitespace and are short; reject anything
-    # else (a descriptive phrase the LLM passed) rather than 400ing the API.
+    # FRED 序列 ID 较短且不含空白字符，
+    # 应拒绝 LLM 传入的自然语言短语，而不是直接请求并得到 400。
     if not candidate or len(candidate) > 30 or any(c.isspace() for c in candidate):
         raise ValueError(
             f"'{indicator}' is not a known macro alias or a valid FRED series ID. "
@@ -134,17 +123,15 @@ def _resolve_series_id(indicator: str) -> str:
 
 
 def _fred_today() -> str:
-    """FRED's current calendar date (US Central) as ``yyyy-mm-dd``.
+    """返回 FRED 所在美国中部时区今天的日期，格式 ``yyyy-mm-dd``。
 
-    The vintage pin is clamped to this: FRED rejects a ``realtime_start`` after
-    its own today with a 400, and ``as_of_date`` on a live run comes from the
-    caller's local clock, which can already be tomorrow in Chicago.
-    """
+    数据版本日期不能晚于该日期，因为 FRED 会拒绝未来的 realtime_start。
+    实时运行中调用者当地可能已经是第二天，不能直接使用本地日期。"""
     return datetime.now(FRED_TZ).strftime("%Y-%m-%d")
 
 
 def _request(path: str, params: dict) -> dict:
-    """GET a FRED endpoint, surfacing FRED's JSON error body on a bad request."""
+    """GET 请求 FRED 端点；请求失败时提供 FRED JSON 错误详情。"""
     api_key = get_api_key()
     response = get_scrubbed(
         f"{FRED_API_BASE}/{path}",
@@ -153,8 +140,8 @@ def _request(path: str, params: dict) -> dict:
         secret=api_key,
         passthrough=(400,),
     )
-    # FRED returns 400 with a JSON {"error_message": ...} for unknown series IDs
-    # or malformed params; turn that into a clear, actionable error.
+    # 未知序列 ID 或无效请求参数时，FRED 返回含 error_message 的 JSON 400；
+    # 将其转换成清晰、可操作的错误。
     if response.status_code == 400:
         try:
             message = response.json().get("error_message", response.text)
@@ -169,43 +156,36 @@ def get_macro_data(
     as_of_date: str,
     look_back_days: int | None = None,
 ) -> str:
-    """Fetch a FRED macroeconomic series as a formatted markdown report.
+    """获取指定 FRED 宏观时间序列，格式化为 Markdown 报告。
 
-    Args:
-        indicator: A friendly alias (e.g. "cpi", "unemployment", "10y_treasury")
-            or a raw FRED series ID (e.g. "CPIAUCSL", "DGS10").
-        as_of_date: The as-of date (yyyy-mm-dd). It bounds the observation window
-            AND pins the data vintage: FRED is queried with the realtime bounds
-            set to ``as_of_date`` (clamped to FRED's own today) so a historical
-            run sees the values that were actually published by that date, not
-            later revisions. Without this, revision-prone series (CPI, GDP, ...)
-            would leak future information into a backtest (#1275).
-        look_back_days: Trailing window length; ``None`` uses DEFAULT_LOOKBACK_DAYS.
+    参数：
+        indicator：易读别名（如 cpi、unemployment、10y_treasury）
+            或原始 FRED ID（如 CPIAUCSL、DGS10）。
+        as_of_date：历史时点，格式 yyyy-mm-dd。用于限制观测窗口，
+            同时将 FRED 的 realtime 版本日期固定在该日（不晚于 FRED 今天），
+            确保回测取得当时发布的数据，而非后来修订的 CPI/GDP（#1275）。
+        look_back_days：回溯天数；None 时使用 DEFAULT_LOOKBACK_DAYS。
 
-    Returns:
-        A markdown report with the series title, units, frequency, the latest
-        value, the change over the window, and a recent observation table.
-    """
+    返回：
+        Markdown 报告，包含序列标题、单位、频率、最新值、
+        窗口内变化及近期数据表。"""
     if look_back_days is None:
         look_back_days = DEFAULT_LOOKBACK_DAYS
 
     end_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
     start_date = (end_dt - timedelta(days=look_back_days)).strftime("%Y-%m-%d")
 
-    # Pin the data vintage. FRED defaults both realtime bounds to today, serving
-    # the LATEST revision of every observation; a single-day realtime interval
-    # asks for the values known as of the pin instead, on both the metadata and
-    # observations requests (#1275). Clamp to FRED's today: on a live run
-    # as_of_date is the caller's local date, which can be a day ahead of Chicago,
-    # and a realtime date in FRED's future 400s -> the routing layer would then
-    # drop macro data silently. A past as_of_date is unaffected, so historical
-    # point-in-time behaviour is preserved.
+    # 明确固定数据的历史版本。FRED 默认使用今天的 realtime 窗口，
+    # 这会返回各条观测值的最新版，而不是历史日期当时已知的版本。
+    # 必须对元数据和观测数据请求都将 realtime 边界设置为 as_of_date（#1275）。
+    # 如果调用者当地比美国中部早进入次日，应限制到 FRED 的今天，
+    # 防止未来日期触发 400，导致路由器丢失宏观数据。
+    # 历史 as_of_date 不受此修正影响。
     pit = min(as_of_date, _fred_today())
     realtime = {"realtime_start": pit, "realtime_end": pit}
 
-    # Invalid LLM-supplied indicator: return guidance rather than raising, so a
-    # bad argument doesn't abort the run (the routing layer also degrades macro
-    # data, but a specific message is more useful to the analyst).
+    # LLM 传入非法指标时，优先返回具体使用指引而非直接抛异常，
+    # 避免坏参数终止运行；宏观数据虽可降级，明确错误更有帮助。
     try:
         series_id = _resolve_series_id(indicator)
     except ValueError as e:
@@ -234,7 +214,7 @@ def get_macro_data(
         },
     ).get("observations", [])
 
-    # FRED encodes a missing observation as ".".
+    # FRED 使用 "." 表示缺失的观测值。
     points = [
         (o["date"], o["value"])
         for o in observations
