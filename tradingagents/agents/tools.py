@@ -1,8 +1,4 @@
-"""The data tools the analysts call.
-
-Each dated tool takes the run's ``trade_date`` from graph state (``InjectedState``)
-and never serves data past it, whatever date the model asks for.
-"""
+"""供分析师 Agent 调用的数据工具集合。"""
 
 from typing import Annotated
 
@@ -56,8 +52,8 @@ def get_indicators(
     Returns:
         str: A formatted dataframe containing the technical indicators for the instrument and indicator.
     """
-    # LLMs sometimes pass multiple indicators as a comma-separated string;
-    # split and process each individually.
+    # LLM 可能把多个指标写成逗号分隔的字符串；
+    # 这里将其拆开并分别处理。
     curr_date = as_of(curr_date, trade_date)
     indicators = [i.strip().lower() for i in indicator.split(",") if i.strip()]
     results = []
@@ -85,7 +81,7 @@ def get_verified_market_snapshot(
     price levels, Bollinger bands, RSI, MACD, moving averages, support /
     resistance, or historical comparisons, and treat it as the source of truth.
     """
-    # An exception out of a tool would end the run.
+    # 工具内部异常如果直接向上传递，可能终止整个运行。
     try:
         return build_verified_market_snapshot(symbol, as_of(curr_date, trade_date), look_back_days)
     except VendorUnavailableError as exc:
