@@ -1,11 +1,8 @@
-"""Every report-producing agent must apply the configured output language
-(#740/#801).
+"""所有输出会进入报告的 Agent 都必须遵守配置的语言（#740/#801）。
 
-A non-English run should produce a fully localized report, not a mix of
-languages. The bug originally happened because several agents silently omitted
-the instruction (fixed in 6b384f7); this test codifies the invariant so a future
-refactor can't quietly drop it again.
-"""
+非英语运行应完整本地化报告，不能混用英文。
+此前部分 Agent 漏传语言指令（在 6b384f7 中修复），
+测试防止后续重构再次出现该问题。"""
 from pathlib import Path
 
 import pytest
@@ -14,8 +11,8 @@ from tradingagents.agents.context import get_language_instruction
 
 _AGENTS_DIR = Path(__file__).resolve().parents[1] / "tradingagents" / "agents"
 
-# Every node whose text reaches the saved report. If you add a report-producing
-# agent, add it here — and make it call get_language_instruction().
+# 所有会向最终保存报告贡献内容的节点都应覆盖。
+# 新增报告 Agent 时，也需要调用 get_language_instruction()。
 REPORT_AGENTS = [
     "analysts/market_analyst.py",
     "analysts/news_analyst.py",
@@ -47,9 +44,9 @@ class TestLanguageInstruction:
         assert "entire response" in out
 
     def test_the_labelled_lines_stay_as_the_format_gives_them(self):
-        # The rating is read from its "**Rating**:" line; a translated label
-        # leaves the reader a translated negation ("不建议卖出 (Sell)") to find
-        # instead, and a Buy reads as Sell (#1435).
+        # 评级依靠固定的 "**Rating**:" 标签解析；如果标签被翻译，
+        # 后续只能从自然语言正文猜测，带否定的句子（如“不建议卖出 (Sell)”）
+        # 可能使 Buy 被误读成 Sell（#1435）。
         from tradingagents.dataflows.config import set_config
         set_config({"output_language": "中文"})
         out = get_language_instruction()
