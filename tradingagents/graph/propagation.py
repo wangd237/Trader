@@ -4,10 +4,10 @@ from tradingagents.agents.state import InvestDebateState, RiskDebateState
 
 
 class Propagator:
-    """Handles state initialization and propagation through the graph."""
+    """负责图中状态的初始化与传播。"""
 
     def __init__(self, max_recur_limit=100):
-        """Initialize with configuration parameters."""
+        """使用配置参数初始化。"""
         self.max_recur_limit = max_recur_limit
 
     def create_initial_state(
@@ -19,14 +19,12 @@ class Propagator:
         instrument_context: str = "",
         portfolio_context: str = "",
     ) -> dict[str, Any]:
-        """Create the initial state for the agent graph.
-
-        ``instrument_context`` is the deterministic ticker-identity string
-        resolved once at run start (see
-        ``TradingAgentsGraph.resolve_instrument_context``). When empty, agents
-        fall back to ticker-only context via
-        ``get_instrument_context_from_state``.
-        """
+        """创建 Agent Graph 的初始状态。
+        
+        ``instrument_context`` 是运行开始时解析一次的确定性标的身份信息
+        （见 ``TradingAgentsGraph.resolve_instrument_context``）。
+        若该值为空，Agent 将通过 ``get_instrument_context_from_state``
+        退回到仅使用 ticker 的上下文。"""
         return {
             "messages": [("human", company_name)],
             "company_of_interest": company_name,
@@ -65,12 +63,11 @@ class Propagator:
         }
 
     def get_graph_args(self, callbacks: list | None = None) -> dict[str, Any]:
-        """Get arguments for the graph invocation.
-
-        Args:
-            callbacks: Optional list of callback handlers for tool execution tracking.
-                       Note: LLM callbacks are handled separately via LLM constructor.
-        """
+        """生成调用 Graph 时使用的参数。
+        
+        参数：
+            callbacks：用于跟踪工具执行的可选回调列表。
+                注意：LLM 回调在 LLM 构造函数中单独处理。"""
         config = {"recursion_limit": self.max_recur_limit}
         if callbacks:
             config["callbacks"] = callbacks
