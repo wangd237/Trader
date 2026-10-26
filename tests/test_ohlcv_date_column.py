@@ -1,8 +1,7 @@
-"""Tests for tolerating a non-`Date` index column in the Yahoo OHLCV loader (#890).
+"""测试 Yahoo OHLCV 加载器兼容非 `Date` 命名的日期列（#890）。
 
-Guards against a download frame whose date column is `index` or `Datetime`
-instead of `Date`, which would otherwise silently drop every indicator.
-"""
+行情的日期列有时叫 `index` 或 `Datetime`，
+若未规范化，技术指标可能静默失效。"""
 
 from __future__ import annotations
 
@@ -15,7 +14,7 @@ from tradingagents.dataflows.vendors.yahoo import ohlcv
 
 
 def _ohlcv(date_col: str) -> pd.DataFrame:
-    """OHLCV frame whose date column is named `date_col`."""
+    """构造日期列名为 `date_col` 的 OHLCV 数据框。"""
     dates = pd.bdate_range("2026-04-01", periods=10)
     return pd.DataFrame({
         date_col: dates,
@@ -50,8 +49,8 @@ class TestEnsureDateColumn:
 @pytest.mark.unit
 class TestCleanDataframeAcrossVersions:
     def test_clean_handles_index_column(self):
-        """A frame with `index` instead of `Date` must still clean to a
-        usable, date-parsed frame (was KeyError: 'Date')."""
+        """日期列即使叫 `index` 也应规范化为可用日期，
+        不能抛出 KeyError: 'Date'。"""
         cleaned = ohlcv._clean_dataframe(_ohlcv("index"))
         assert "Date" in cleaned.columns
         assert pd.api.types.is_datetime64_any_dtype(cleaned["Date"])
@@ -62,8 +61,8 @@ class TestCleanDataframeAcrossVersions:
         assert len(cleaned) == 10
 
     def test_indicators_compute_after_index_rename(self):
-        """stockstats must compute indicators on a frame whose date column
-        arrived as `index`, instead of erroring per indicator."""
+        """stockstats 应能处理初始日期列为 `index` 的行情，
+        不能在计算指标时不断报错。"""
         from stockstats import wrap
         cleaned = ohlcv._clean_dataframe(_ohlcv("index"))
         df = wrap(cleaned)

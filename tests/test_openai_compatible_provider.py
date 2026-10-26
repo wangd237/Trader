@@ -1,9 +1,8 @@
-"""Generic OpenAI-compatible provider (vLLM / LM Studio / llama.cpp / relays).
+"""通用 OpenAI 兼容提供商（vLLM、LM Studio、llama.cpp、代理）。
 
-Verifies the user-supplied base_url is required and honored, the key is optional
-(keyless local default), Chat Completions (not the Responses API) is used, any
-model name is accepted, and the env backend URL precedence (#978).
-"""
+验证用户提供的 base_url 必须生效且不能为空，API Key 可以省略，
+使用 Chat Completions 而非 Responses API，允许自定义模型 ID，
+并正确执行环境变量 URL 优先级（#978）。"""
 
 import pytest
 
@@ -36,10 +35,10 @@ def test_keyless_local_uses_placeholder_and_chat_completions(monkeypatch):
     ).get_llm()
     assert isinstance(llm, LocalCompatibleChatOpenAI)
     assert str(llm.openai_api_base) == "http://localhost:8000/v1"
-    # keyless local servers: a placeholder key is sent
+    # 无鉴权的本地服务发送占位密钥。
     key = llm.openai_api_key.get_secret_value() if hasattr(llm.openai_api_key, "get_secret_value") else llm.openai_api_key
     assert key == "EMPTY"
-    # must use Chat Completions, not OpenAI's Responses API
+    # 必须使用 Chat Completions，而非 OpenAI Responses API。
     assert getattr(llm, "use_responses_api", False) in (False, None)
 
 
@@ -56,8 +55,8 @@ def test_optional_key_from_env(monkeypatch):
 @pytest.mark.unit
 def test_any_model_accepted_no_forced_key():
     assert validate_model("openai_compatible", "literally-anything") is True
-    # The key env exists (read for keyed relays) but the provider is marked
-    # key-optional, so the CLI never forces a prompt and keyless servers work.
+    # 保留密钥环境变量供有鉴权代理使用，但该提供商允许不配置密钥，
+    # CLI 不应强制提问，保证无密钥本地服务可用。
     assert get_api_key_env("openai_compatible") == "OPENAI_COMPATIBLE_API_KEY"
     from tradingagents.llm_clients.openai_client import OPENAI_COMPATIBLE_PROVIDERS
     assert OPENAI_COMPATIBLE_PROVIDERS["openai_compatible"].key_optional is True
@@ -65,7 +64,7 @@ def test_any_model_accepted_no_forced_key():
 
 @pytest.mark.unit
 def test_env_backend_url_precedence():
-    # #978: explicit env URL wins over the menu/default regardless of provider source.
+    # #978：显式环境变量 URL 优先于菜单或默认地址。
     from cli.prompts import resolve_backend_url
     assert resolve_backend_url("openai", "https://api.openai.com/v1", env_url="http://proxy/v1") == "http://proxy/v1"
     assert resolve_backend_url("openai", "https://api.openai.com/v1", env_url=None) == "https://api.openai.com/v1"
@@ -74,9 +73,8 @@ def test_env_backend_url_precedence():
 
 @pytest.mark.unit
 def test_structured_output_suppresses_object_tool_choice(monkeypatch):
-    # LM Studio / vLLM reject the object-form tool_choice langchain sends for
-    # function-calling structured output (#1057). The generic provider binds the
-    # schema as a tool but must not force tool_choice.
+    # LM Studio、vLLM 不支持 LangChain 使用的对象形式 tool_choice（#1057）。
+    # 通用提供商应绑定 Schema 为工具，但不能强制 tool_choice。
     from langchain_openai import ChatOpenAI
     from pydantic import BaseModel
 
