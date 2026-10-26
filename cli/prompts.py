@@ -27,7 +27,7 @@ ANALYST_CHOICES = [
 CRYPTO_SUFFIXES = ("-USD", "-USDT", "-USDC", "-BTC", "-ETH")
 
 
-# The style of every selection menu.
+# 统一各个选项菜单的显示样式。
 _MENU_STYLE = questionary.Style([
     ("selected", "fg:magenta noinherit"),
     ("highlighted", "fg:magenta noinherit"),
@@ -36,23 +36,21 @@ _MENU_STYLE = questionary.Style([
 
 
 def is_valid_ticker_input(value: str) -> bool:
-    """Whether a ticker entry is acceptable (charset + length).
+    """检查 ticker 输入是否满足允许字符和长度要求。
 
-    Allows the characters Yahoo symbols use, including ``=`` for futures/forex
-    like ``GC=F`` and ``EURUSD=X`` (#980), and ``^`` for indices. Empty input is
-    allowed (it defaults to SPY downstream).
-    """
+    允许 Yahoo 使用的特殊字符，例如期货或外汇代码中的 ``=``
+    （如 ``GC=F``、``EURUSD=X``，#980），以及指数代码中的 ``^``。
+    允许空输入，后续将默认使用 SPY。"""
     v = value.strip()
     return not v or (all(ch.isalnum() or ch in "._-^=" for ch in v) and len(v) <= 32)
 
 
 def get_ticker() -> str:
-    """Prompt the user to enter a ticker symbol, preserving exchange suffixes.
+    """提示用户输入 ticker，并保留交易所后缀。
 
-    Uses questionary.text (not typer.prompt, which strips trailing dot-suffixes
-    like ``000404.SH`` on some shells) and validates the symbol charset so an
-    obvious typo is caught before the run starts.
-    """
+    使用 questionary.text 而非 typer.prompt：后者在某些 Shell 下
+    可能错误处理 ``000404.SH`` 这样的末尾点后缀。
+    同时检查允许字符，提前发现明显的输入错误。"""
     ticker = questionary.text(
         f"Enter ticker symbol (e.g. {TICKER_INPUT_EXAMPLES}):",
         validate=lambda x: (
@@ -75,14 +73,14 @@ def get_ticker() -> str:
 
 
 def parse_ticker(value: str) -> str:
-    """A ticker given on the command line, canonical; empty or malformed is refused."""
+    """规范化命令行传入的 ticker，拒绝空值或格式错误的值。"""
     if not value.strip() or not is_valid_ticker_input(value):
         raise ValueError(f"not a ticker symbol: {value!r} (e.g. {TICKER_INPUT_EXAMPLES})")
     return normalize_ticker_symbol(value)
 
 
 def parse_analysis_date(value: str) -> str:
-    """An analysis date as YYYY-MM-DD, today or earlier."""
+    """校验分析日期格式 YYYY-MM-DD，且不得晚于今天。"""
     try:
         day = datetime.datetime.strptime(value.strip(), "%Y-%m-%d").date()
     except ValueError:
@@ -93,8 +91,8 @@ def parse_analysis_date(value: str) -> str:
 
 
 def parse_analysts(value: str, asset_type: AssetType) -> list[AnalystType]:
-    """Comma-separated analyst names, in the canonical order, checked against the asset."""
-    # "sentiment" is the name users see; the analyst's key is "social".
+    """解析逗号分隔的分析师名称，按固定顺序排列，并校验资产类型是否支持。"""
+    # 用户看到的名称为 "sentiment"，分析师内部标识则为 "social"。
     names = [{"sentiment": "social"}.get(n, n) for n in (n.strip().lower() for n in value.split(",")) if n]
     if not names:
         raise ValueError("name at least one analyst")
@@ -111,13 +109,11 @@ def parse_analysts(value: str, asset_type: AssetType) -> list[AnalystType]:
 
 
 def normalize_ticker_symbol(ticker: str) -> str:
-    """Resolve user input to its canonical Yahoo symbol (single source of truth).
+    """将用户输入转换成标准 Yahoo 代码，统一符号映射来源。
 
-    Delegates to the data layer's ``normalize_symbol`` so the symbol the CLI
-    passes through the pipeline is exactly the one the data path will price
-    (e.g. ``BTCUSD`` -> ``BTC-USD``, ``XAUUSD`` -> ``GC=F``). Falls back to the
-    plain upper-case if the data layer is unavailable.
-    """
+    调用数据层的 ``normalize_symbol``，确保 CLI 传入的标的代码
+    与行情数据查询完全一致，例如 ``BTCUSD`` → ``BTC-USD``，
+    ``XAUUSD`` → ``GC=F``。若数据层不可用，退回简单的大写转换。"""
     try:
         from tradingagents.dataflows.symbols import normalize_symbol
 
@@ -127,8 +123,8 @@ def normalize_ticker_symbol(ticker: str) -> str:
 
 
 def detect_asset_type(ticker: str) -> AssetType:
-    """Classify on the canonical symbol so e.g. BTCUSD and BTC-USDT both read as
-    crypto (#981/#982), matching what the data path will actually fetch."""
+    """依据标准化代码判断资产类型，使 BTCUSD 和 BTC-USDT
+    都正确识别为加密资产（#981/#982），与实际数据查询一致。"""
     canonical = normalize_ticker_symbol(ticker)
     if canonical.endswith(CRYPTO_SUFFIXES):
         return AssetType.CRYPTO
@@ -148,15 +144,14 @@ def filter_analysts_for_asset_type(
 
 
 def _matching_choice(options, default):
-    """The option value equal to ``default``, or None to leave the menu as is."""
+    """返回与 ``default`` 相匹配的选项值；若无匹配则返回 None，不更改菜单。"""
     return next((value for _, value in options if value == default), None)
 
 
 def select_analysts(asset_type: AssetType = AssetType.STOCK, default=None) -> list[AnalystType]:
-    """Select analysts using an interactive checkbox.
+    """通过交互式复选框选择分析师。
 
-    ``default`` pre-checks the previous run's analysts; the prompt still shows.
-    """
+    ``default`` 仅用于预选上次运行的分析师，提示仍然显示。"""
     available_analysts = filter_analysts_for_asset_type(
         [value for _, value in ANALYST_CHOICES],
         asset_type,
@@ -188,7 +183,7 @@ def select_analysts(asset_type: AssetType = AssetType.STOCK, default=None) -> li
 
 
 def select_research_depth(default=None) -> int:
-    """Select research depth using an interactive selection."""
+    """通过交互式菜单选择研究深度。"""
 
     DEPTH_OPTIONS = [
         ("Shallow - Quick research, few debate and strategy discussion rounds", 1),
@@ -219,13 +214,10 @@ def select_research_depth(default=None) -> int:
     return choice
 
 
-# Mainstream OpenRouter chat-LLM provider namespaces. We surface the newest
-# models from these rather than the universal-newest, which is dominated by
-# niche/experimental releases. These are the general-purpose chat providers;
-# more enterprise/specialised namespaces (nvidia, cohere, amazon, ...) tend to
-# ship research/safety variants as their newest, so they're left out of the
-# shortlist. Provider names are stable (unlike model IDs), so this rarely needs
-# touching; anything not here is still reachable via Custom ID.
+# 主流 OpenRouter 聊天模型提供商的命名空间。优先展示这些提供商
+# 的最新通用模型，而不是整个市场的最新模型，后者容易被实验性、
+# 小众或专用版本占据。其他提供商仍可通过自定义 ID 使用。
+# 提供商名称相对稳定，维护成本低于不断变化的模型 ID。
 _OPENROUTER_MAINSTREAM = {
     "openai", "anthropic", "google", "deepseek", "qwen", "mistralai",
     "meta-llama", "x-ai", "z-ai", "minimax", "moonshotai",
@@ -233,15 +225,14 @@ _OPENROUTER_MAINSTREAM = {
 
 
 def _fetch_openrouter_models() -> list[tuple[str, str]]:
-    """Fetch available models from the OpenRouter API."""
+    """从 OpenRouter API 获取可用模型列表。"""
     import requests
     try:
         resp = requests.get("https://openrouter.ai/api/v1/models", timeout=10)
         resp.raise_for_status()
         models = resp.json().get("data", [])
-        # Newest first so the top-N shown really is the latest available — the
-        # API currently returns this order, but sort explicitly so the prompt's
-        # "latest available" label holds regardless of response ordering.
+        # 按照时间倒序排序，确保 top-N 真的是最新模型。
+        # 即使当前 API 默认按时间返回，也需显式排序以保证菜单承诺。
         models.sort(key=lambda m: m.get("created") or 0, reverse=True)
         return [(m.get("name") or m["id"], m["id"]) for m in models]
     except Exception as e:
@@ -250,7 +241,7 @@ def _fetch_openrouter_models() -> list[tuple[str, str]]:
 
 
 def select_chatgpt_model(mode: str, default=None) -> str:
-    """Select one of the ChatGPT plan's models, or enter a model ID."""
+    """选择 ChatGPT 订阅可用的模型，或手动输入模型 ID。"""
     from tradingagents.llm_clients import chatgpt_auth
     try:
         models = chatgpt_auth.list_models()
@@ -262,7 +253,8 @@ def select_chatgpt_model(mode: str, default=None) -> str:
 
 
 def _select_listed_model(title: str, models, default, custom) -> str:
-    """Select from ``models`` ((name, model ID) pairs, listed live) or enter one with ``custom``."""
+    """从实时获取的 ``models``（名称、模型 ID 配对）中选择，
+    或通过 ``custom`` 输入自定义模型 ID。"""
     choices = [questionary.Choice(name, value=mid) for name, mid in models]
     choices.append(questionary.Choice("Custom model ID", value="custom"))
     choice = questionary.select(
@@ -279,12 +271,11 @@ def _select_listed_model(title: str, models, default, custom) -> str:
 
 
 def _require_text(message: str, hint: str) -> str:
-    """Prompt for a required value; exit cleanly if the user cancels.
+    """提示输入必填项；用户取消时安全退出。
 
-    ``questionary.text(...).ask()`` returns None on Ctrl-C/Esc; mirror the
-    exit-on-cancel behavior of the other required selections so a cancelled
-    prompt never returns an empty model/deployment that would fail downstream.
-    """
+    ``questionary.text(...).ask()`` 在 Ctrl-C/Esc 时返回 None。
+    与其他必填项保持一致，取消时直接退出，避免空模型或空部署名称
+    继续传入下游导致错误。"""
     response = questionary.text(
         message,
         validate=lambda x: len(x.strip()) > 0 or hint,
@@ -296,14 +287,13 @@ def _require_text(message: str, hint: str) -> str:
 
 
 def select_openrouter_model(mode: str, default=None) -> str:
-    """Select an OpenRouter model from the newest available, or enter a custom ID.
+    """从 OpenRouter 最新可用模型中选择，或输入自定义 ID。
 
-    ``mode`` ("quick"/"deep") labels the prompt so the two consecutive
-    OpenRouter selections are distinguishable, like the other providers (#1000).
-    """
+    ``mode``（"quick"/"deep"）用于区分连续出现的两次模型选择，
+    与其他提供商的交互逻辑一致（#1000）。"""
     models = _fetch_openrouter_models()  # newest first
-    # Prefer the newest from mainstream providers so the shortlist isn't crowded
-    # out by niche/experimental releases; fall back to all if none match.
+    # 优先选取主流提供商最新模型，避免候选列表被小众或实验版本占满；
+    # 如果没有匹配项，再回退到全部模型。
     mainstream = [
         (name, mid) for name, mid in models
         if not mid.startswith("~")  # skip variant/alias duplicate routes
@@ -316,17 +306,17 @@ def select_openrouter_model(mode: str, default=None) -> str:
                               "Please enter a model ID."))
 
 
-# Providers whose models are listed live, with the menu that offers them.
+# 支持实时获取模型列表的提供商，以及相应的选择菜单。
 LISTED_LIVE = {"openrouter": select_openrouter_model, "chatgpt": select_chatgpt_model}
 
 
 def _prompt_custom_model_id() -> str:
-    """Prompt user to type a custom model ID."""
+    """提示用户输入自定义模型 ID。"""
     return _require_text("Enter model ID:", "Please enter a model ID.")
 
 
 def _select_model(provider: str, mode: str, default=None) -> str:
-    """Select a model for the given provider and mode (quick/deep)."""
+    """为指定提供商和 quick/deep 模式选择模型。"""
     listed = LISTED_LIVE.get(provider.lower())
     if listed is not None:
         return listed(mode, default)
@@ -359,24 +349,22 @@ def _select_model(provider: str, mode: str, default=None) -> str:
 
 
 def select_shallow_thinking_agent(provider, default=None) -> str:
-    """Select shallow thinking llm engine using an interactive selection."""
+    """通过交互式菜单选择轻量推理模型。"""
     return _select_model(provider, "quick", default)
 
 
 def select_deep_thinking_agent(provider, default=None) -> str:
-    """Select deep thinking llm engine using an interactive selection."""
+    """通过交互式菜单选择深度推理模型。"""
     return _select_model(provider, "deep", default)
 
 
 def _llm_provider_table() -> list[tuple[str, str, str | None]]:
-    """(display_name, provider_key, base_url) for every supported provider.
+    """列出所有提供商的 (display_name, provider_key, base_url)。
 
-    Shared by the interactive picker and by env-driven configuration so an
-    env-set provider resolves to the same default endpoint the menu uses.
-    Ollama users can point at a remote ollama-serve via OLLAMA_BASE_URL
-    (convention from the broader Ollama ecosystem); falls back to the
-    localhost default when unset.
-    """
+    交互式选择和环境变量驱动的配置共用这份列表，确保使用环境变量
+    指定提供商时，也能解析到与菜单相同的默认端点。
+    Ollama 可通过 OLLAMA_BASE_URL 连接远程 ollama-serve，
+    未设置时使用 localhost 默认地址。"""
     ollama_url = os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
     return [
         ("OpenAI", "openai", "https://api.openai.com/v1"),
@@ -386,8 +374,8 @@ def _llm_provider_table() -> list[tuple[str, str, str | None]]:
         ("xAI", "xai", "https://api.x.ai/v1"),
         ("DeepSeek", "deepseek", "https://api.deepseek.com"),
         ("Qwen", "qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"),
-        # Z.AI international, the platform ZHIPU_API_KEY belongs to; the CN
-        # platform is the separate glm-cn key, chosen in the region prompt.
+        # ZHIPU_API_KEY 对应 Z.AI 国际平台；中国地区单独使用 glm-cn 标识，
+        # 通过后续地区选择菜单指定。
         ("GLM", "glm", "https://api.z.ai/api/paas/v4/"),
         ("MiniMax", "minimax", "https://api.minimax.io/v1"),
         ("OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
@@ -403,7 +391,7 @@ def _llm_provider_table() -> list[tuple[str, str, str | None]]:
 
 
 def provider_default_url(provider_key: str) -> str | None:
-    """Return the default backend URL for a provider key, or None if unknown."""
+    """返回指定提供商的默认后端 URL；未知提供商返回 None。"""
     key = provider_key.lower()
     for _, pk, url in _llm_provider_table():
         if pk == key:
@@ -414,18 +402,17 @@ def provider_default_url(provider_key: str) -> str | None:
 def resolve_backend_url(
     provider: str, menu_url: str | None = None, env_url: str | None = None
 ) -> str | None:
-    """Resolve the backend URL with the correct precedence.
+    """按正确优先级解析后端 URL。
 
-    An explicit env override (``env_url``, from ``TRADINGAGENTS_LLM_BACKEND_URL``
-    via ``DEFAULT_CONFIG['backend_url']``) is honored regardless of how the
-    provider was chosen — interactively or from the environment (#978).
-    Otherwise the menu/region URL, then the provider's default.
-    """
+    显式环境变量覆盖（``env_url``，来自
+    ``TRADINGAGENTS_LLM_BACKEND_URL`` 经 DEFAULT_CONFIG 传递）
+    无论提供商是交互选择还是由环境变量设置都始终优先（#978）。
+    否则依次使用菜单/地区端点和提供商默认端点。"""
     return env_url or menu_url or provider_default_url(provider)
 
 
 def prompt_openai_compatible_url(default=None) -> str:
-    """Prompt for a custom OpenAI-compatible endpoint base URL."""
+    """提示输入自定义 OpenAI 兼容接口的基础 URL。"""
     url = questionary.text(
         "Enter the OpenAI-compatible base URL "
         "(e.g. http://localhost:8000/v1 for vLLM, http://localhost:1234/v1 for LM Studio):",
@@ -439,15 +426,14 @@ def prompt_openai_compatible_url(default=None) -> str:
     return url.strip()
 
 
-# The menu entry that groups the providers used through a personal plan.
+# 把通过个人订阅计划使用的提供商归为同一个菜单选项。
 _SUBSCRIPTION = ("subscription", None)
 
 
 def select_llm_provider(default=None) -> tuple[str, str | None]:
-    """Select the LLM provider and its API endpoint."""
+    """选择 LLM 提供商及其 API 端点。"""
     PROVIDERS = _llm_provider_table()
-    # A region-specific key (qwen-cn) is chosen in a later prompt; the menu
-    # lists the base provider.
+    # qwen-cn 等地区专属标识在下一步选择，主菜单仅展示基础提供商。
     base = (default or "").split("-cn")[0]
     choices = []
     for display, provider_key, url in PROVIDERS:
@@ -488,7 +474,7 @@ def select_llm_provider(default=None) -> tuple[str, str | None]:
 
 
 def ask_openai_reasoning_effort() -> str:
-    """Ask for OpenAI reasoning effort level."""
+    """询问 OpenAI 模型的推理力度级别。"""
     choices = [
         questionary.Choice("Medium (Default)", "medium"),
         questionary.Choice("High (More thorough)", "high"),
@@ -506,12 +492,10 @@ def ask_openai_reasoning_effort() -> str:
 
 
 def ask_anthropic_effort() -> str | None:
-    """Ask for Anthropic effort level.
+    """询问 Anthropic 模型的推理力度级别。
 
-    Controls token usage and response thoroughness on Claude 4.5 / 4.6 / 4.7
-    models. The API also accepts "max"; we expose low/medium/high as the
-    common selection range.
-    """
+    控制 Claude 4.5 / 4.6 / 4.7 的 token 用量和回答详尽程度。
+    虽然 API 还接受 "max"，交互菜单只提供通用的 low/medium/high。"""
     return questionary.select(
         "Select Effort Level:",
         choices=[
@@ -528,11 +512,10 @@ def ask_anthropic_effort() -> str | None:
 
 
 def ask_gemini_thinking_config() -> str | None:
-    """Ask for Gemini thinking configuration.
+    """询问 Gemini 的思考模式配置。
 
-    Returns thinking_level: "high" or "minimal".
-    Client maps to appropriate API param based on model series.
-    """
+    返回 thinking_level（"high" 或 "minimal"）。
+    客户端根据模型系列映射到相应 API 参数。"""
     return questionary.select(
         "Select Thinking Mode:",
         choices=[
@@ -548,11 +531,10 @@ def ask_gemini_thinking_config() -> str | None:
 
 
 def ask_glm_region() -> tuple[str, str]:
-    """Ask which GLM platform (Z.AI international vs BigModel China) to use.
+    """询问使用 GLM 的哪个平台：Z.AI 国际版或 BigModel 中国版。
 
-    Zhipu serves the same GLM models under two brands with separate
-    accounts; keys aren't interchangeable. Returns (provider_key, backend_url).
-    """
+    两个品牌提供相同 GLM 模型，但账户彼此独立，密钥不能互换。
+    返回 (provider_key, backend_url)。"""
     return questionary.select(
         "Select GLM platform:",
         choices=[
@@ -574,12 +556,10 @@ def ask_glm_region() -> tuple[str, str]:
 
 
 def ask_qwen_region() -> tuple[str, str]:
-    """Ask which Qwen region (international vs China) to use.
+    """询问 Qwen 使用国际端点还是中国端点。
 
-    Alibaba DashScope exposes two endpoints with separate accounts —
-    a key from one region does NOT authenticate against the other
-    (fixes #758). Returns (provider_key, backend_url).
-    """
+    阿里云 DashScope 的两个地区端点使用独立账户，密钥不能跨区使用
+    （修复 #758）。返回 (provider_key, backend_url)。"""
     return questionary.select(
         "Select Qwen region:",
         choices=[
@@ -601,12 +581,10 @@ def ask_qwen_region() -> tuple[str, str]:
 
 
 def ask_minimax_region() -> tuple[str, str]:
-    """Ask which MiniMax region (global vs China) to use.
+    """询问 MiniMax 使用国际还是中国端点。
 
-    MiniMax exposes two endpoints with separate accounts — a key from
-    one region does NOT authenticate against the other. Returns
-    (provider_key, backend_url).
-    """
+    两个端点使用不同账户，密钥不能互换。
+    返回 (provider_key, backend_url)。"""
     return questionary.select(
         "Select MiniMax region:",
         choices=[
@@ -628,15 +606,11 @@ def ask_minimax_region() -> tuple[str, str]:
 
 
 def confirm_ollama_endpoint(url: str) -> None:
-    """Show the resolved Ollama endpoint after provider selection.
+    """在选择提供商后展示实际解析出的 Ollama 端点。
 
-    Surfaces three things the user benefits from seeing before model
-    selection: which URL we'll actually hit, where it came from
-    (`OLLAMA_BASE_URL` vs default), and a soft warning if the URL is
-    missing the scheme/port that ollama-serve expects. The warning is
-    advisory only — we don't reject malformed input, since the user may
-    be doing something deliberately unusual (e.g. a reverse-proxy path).
-    """
+    模型选择前让用户看到三个信息：即将请求的 URL、地址来源
+    （``OLLAMA_BASE_URL`` 或默认值），以及协议或端口可能不正确时的提示。
+    警告仅供参考，不阻止执行，因为用户可能有意使用反向代理等特殊路径。"""
     from_env = os.environ.get("OLLAMA_BASE_URL")
     origin = " (from OLLAMA_BASE_URL)" if from_env and from_env == url else ""
     console.print(f"[green]✓ Using Ollama at {url}{origin}[/green]")
@@ -648,8 +622,8 @@ def confirm_ollama_endpoint(url: str) -> None:
             f"http://<host>:11434/v1.[/yellow]"
         )
     elif ":11434" not in url and "://localhost" not in url and "://127.0.0.1" not in url:
-        # Soft hint when the port differs from the ollama-serve default
-        # and the host isn't local (where users sometimes proxy on :80).
+        # 端口不符合 ollama-serve 默认值且主机不是本地地址时给出提示；
+        # 远程用户可能通过 80 端口等反向代理访问，因此仅提示不拦截。
         console.print(
             f"[yellow]Note: {url!r} doesn't include port 11434. "
             f"Make sure your remote ollama-serve listens on the port "
@@ -658,10 +632,10 @@ def confirm_ollama_endpoint(url: str) -> None:
 
 
 def ensure_signed_in(provider: str) -> None:
-    """Make sure a plan provider's sign-in works before the run, offering to sign in now.
+    """运行前验证订阅型提供商的登录状态，并允许现场登录。
 
-    Signing in runs as its own process (``tradingagents login chatgpt``), so its
-    read of a pasted address ends with it and never takes a later answer."""
+    登录在独立进程（``tradingagents login chatgpt``）中进行，
+    确保粘贴登录地址的输入操作不会影响后续交互问题。"""
     if provider.lower() not in SIGNED_IN_PROVIDERS:
         return
     from tradingagents.llm_clients import chatgpt_auth  # the one signed-in provider
@@ -676,7 +650,7 @@ def ensure_signed_in(provider: str) -> None:
             console.print(f"[red]{escape(str(exc))}[/red]")
             raise typer.Exit(code=1) from None
         console.print(f"\n[yellow]{escape(str(exc))}[/yellow]")
-        # -P keeps a cli/ package in the working directory from shadowing ours.
+        # 使用 -P 防止工作目录中的同名 cli/ 包遮蔽项目自己的模块。
         login = [sys.executable, "-P", "-m", "cli.main", "login", "chatgpt"]
         if subprocess.run(login).returncode != 0:
             raise typer.Exit(code=1) from None
@@ -684,22 +658,18 @@ def ensure_signed_in(provider: str) -> None:
 
 
 def ensure_api_key(provider: str) -> str | None:
-    """Make sure the API key for `provider` is available in the environment.
+    """确保指定 `provider` 的 API Key 已存在于环境变量。
 
-    If the env var is already set, returns its value untouched. Otherwise
-    interactively prompts the user, persists the value to the project's
-    .env file via python-dotenv's set_key (creating .env if needed), and
-    exports it into os.environ so the current process picks it up.
-
-    Returns None for providers that do not require a key (e.g. ollama)
-    and for providers not found in the canonical mapping.
-    """
+    若已设置则直接返回；否则交互询问，通过 python-dotenv 的
+    set_key 保存到项目 .env（不存在时创建），并写入 os.environ，
+    让当前进程立即能够读取。
+    无需密钥的提供商（如 ollama）或未注册的提供商返回 None。"""
     env_var = get_api_key_env(provider)
     if env_var is None:
         return None  # ollama / unknown — no key check possible
 
-    # Key-optional providers (generic OpenAI-compatible / local servers) read the
-    # key when present but must never force an interactive prompt.
+    # 密钥可选的提供商（通用 OpenAI 兼容端点或本地服务）
+    # 有密钥就读取，但绝不强制弹出交互式密钥输入。
     spec = OPENAI_COMPATIBLE_PROVIDERS.get(provider.lower())
     if spec is not None and spec.key_optional:
         return os.environ.get(env_var)
@@ -729,8 +699,8 @@ def ensure_api_key(provider: str) -> str | None:
         return None
 
     env_path = find_dotenv(usecwd=True) or str(Path.cwd() / ".env")
-    # The file holds credentials, so make it owner-only before writing: create
-    # it 0600 when absent, and tighten an existing one (set_key keeps the mode).
+    # 该文件保存凭据，写入前必须限制为仅文件所有者可访问。
+    # 不存在时以 0600 权限创建，已有文件则收紧权限；set_key 保留文件模式。
     if not os.path.exists(env_path):
         os.close(os.open(env_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
     os.chmod(env_path, 0o600)
@@ -741,11 +711,10 @@ def ensure_api_key(provider: str) -> str | None:
 
 
 def ask_output_language(default=None) -> str:
-    """Ask for report output language.
+    """询问报告输出语言。
 
-    ``default`` is offered only when it is one of the listed languages: a custom
-    one entered last time is free text, which the menu cannot preselect.
-    """
+    仅在 ``default`` 属于菜单内语言时将其预选；
+    上次填写的自定义语言是自由文本，菜单无法直接选中。"""
     choices = [
         questionary.Choice("English (default)", "English"),
         questionary.Choice("Chinese (中文)", "Chinese"),
@@ -771,8 +740,8 @@ def ask_output_language(default=None) -> str:
         ]),
     ).ask()
 
-    # Output language has a sensible default, so a cancel falls back to English
-    # rather than exiting the run (unlike the required model/provider prompts).
+    # 输出语言有合理默认值，因此取消时回退到英语，而不是结束运行；
+    # 提供商和模型等必填问题取消时才直接退出。
     if choice is None:
         return "English"
     if choice == "custom":
