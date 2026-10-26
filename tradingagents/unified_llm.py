@@ -35,7 +35,7 @@ def unified_requested() -> bool:
 
 def resolve_unified() -> tuple[str, str, str] | None:
     """返回 (provider, model, base_url)；使用旧版配置时返回 None。
-    
+
     API Key 不会写入配置返回值、报告或诊断消息。
     只有本机回环地址允许省略密钥。"""
     if not unified_requested():

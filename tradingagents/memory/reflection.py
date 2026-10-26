@@ -12,7 +12,7 @@ class Reflector:
 
     def _system_prompt(self, holding_days: int) -> str:
         """为已结算的记忆日志条目构造 reflect_on_final_decision 的简洁提示词。
-        
+
         生成 2～4 句简短文字，便于注入后续 Agent Prompt，
         而不会显著增大上下文。提示词明确观察窗口的长度，
         因为一周表现不能证伪一个按数月设计的策略；
@@ -40,7 +40,7 @@ class Reflector:
         holding_days: int = 5,
     ) -> str:
         """结合真实结果，对最终交易决策进行一次 LLM 反思。
-        
+
         待结算决策完成结算时调用。最终交易决策已经汇总各分析师见解，
         因此无需额外提供市场上下文。``benchmark_name`` 是 Alpha 基准名称，
         美股如 ``"SPY"``，日股（``.T``）如 ``"^N225"``；

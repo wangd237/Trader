@@ -37,7 +37,7 @@ class TradingMemoryLog:
         rating: str | None = None,
     ) -> None:
         """在 propagate() 结束时追加一条待结算记录，不调用 LLM。
-        
+
         若调用者传入 ``rating``，使用该决策评级；否则从决策文本中解析评级。"""
         if not self._log_path:
             return
@@ -58,7 +58,7 @@ class TradingMemoryLog:
 
     def settling(self, wait: bool = True):
         """跨线程、跨进程保证同一时间只有一轮结算持有日志锁。
-        
+
         结算会读取待处理记录，对每笔决策调用模型生成反思并写回。
         并行结算可能对同一笔决策重复付费，因此使用独立于单次写入锁的
         专用结算锁。返回是否成功持有锁；设置 ``wait=False`` 时，
@@ -90,7 +90,7 @@ class TradingMemoryLog:
         self, ticker: str, n_same: int = 5, n_cross: int = 3, as_of: str | None = None
     ) -> str:
         """生成格式化的历史经验字符串，供注入 Agent Prompt。
-        
+
         指定 ``as_of``（yyyy-mm-dd）时，只包含该日期之前已经知道结果的经验；
         记录必须包含 ``resolved:...`` 结算日期，且该日期不晚于 ``as_of``。
         这可防止历史分析或回测从当时尚未发生的结果中学习（#1251）。
@@ -135,10 +135,10 @@ class TradingMemoryLog:
         resolution_date: str | None = None,
     ) -> bool:
         """以原子写入方式更新待结算标记，并追加 REFLECTION 章节。
-        
+
         返回记录是否成功更新；若记录已经不再待结算（其他任务先完成），
         则返回 False。
-        
+
         找到与 (trade_date, ticker) 匹配的第一条待结算记录，
         写入收益率和 ``resolution_date``（实际结果变得可知的日期），
         并追加反思章节。通过临时文件加 os.replace() 原子替换，
@@ -194,7 +194,7 @@ class TradingMemoryLog:
 
     def batch_update_with_outcomes(self, updates: list[dict]) -> None:
         """在一次文件读取和原子写入中批量更新多条决策结果。
-        
+
         updates 中每个元素都必须提供 ticker、trade_date、
         raw_return、alpha_return、holding_days 和 reflection。"""
         if not self._log_path or not self._log_path.exists() or not updates:
@@ -251,7 +251,7 @@ class TradingMemoryLog:
         trade_date, ticker, rating, raw_pct, alpha_pct, holding_days, resolution_date
     ) -> str:
         """生成已结算记录标记，同时记录真实结果可知的日期。
-        
+
         ``resolution_date`` 即计算收益率时使用的最后一条价格记录日期，
         后续运行据此执行时点过滤（#1251）。无法取得时省略，
         保持兼容旧版六字段标记。"""
@@ -262,7 +262,7 @@ class TradingMemoryLog:
 
     def _apply_rotation(self, blocks: list[str]) -> list[str]:
         """已结算记录超过 max_entries 时，删除最早的已结算块。
-        
+
         待结算块始终保留，因为它们仍有工作未完成。
         若禁用轮转或没有超过上限，则原样返回 ``blocks``。"""
         if not self._max_entries or self._max_entries <= 0:

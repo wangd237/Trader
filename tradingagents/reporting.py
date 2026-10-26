@@ -91,7 +91,7 @@ def _report_parts(final_state: dict) -> list[tuple[str, str, list[tuple[str, str
 def write_report_tree(final_state: dict, ticker: str, save_path, settings: dict | None = None,
                       html: bool = True) -> Path:
     """将已完成的运行报告写入 ``save_path``，返回完整报告的路径。
-    
+
     ``settings``（来自 ``TradingAgentsGraph.run_settings()``）
     提供运行来源信息，写入报告标题区。
     启用 ``html`` 还会生成自包含的 ``complete_report.html`` 页面（#1419）。"""

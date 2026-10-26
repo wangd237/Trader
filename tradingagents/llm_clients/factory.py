@@ -11,19 +11,19 @@ def create_llm_client(
     **kwargs,
 ) -> BaseLLMClient:
     """为指定提供商创建 LLM 客户端。
-    
+
     按需导入提供商模块，避免仅导入工厂（例如测试收集阶段）
     就加载大型 LLM SDK，或者因为缺少 API Key 而报错。
-    
+
     参数：
         provider：LLM 提供商名称。
         model：模型名称或标识符。
         base_url：可选的 API 端点基础地址。
         **kwargs：提供商专属的其他参数。
-    
+
     返回：
         已配置的 BaseLLMClient 实例。
-    
+
     异常：
         ValueError：提供商不受支持。"""
     provider_lower = provider.lower()
@@ -55,7 +55,7 @@ def create_llm_client(
 
 def _coerce_max_retries(value):
     """校验 ``llm_max_retries``，确保其为非负整数。
-    
+
     允许整数和数字字符串（环境变量以字符串形式传入）；拒绝布尔值与负数，
     让错误配置在启动时明确失败，而不是静默禁用重试。"""
     if isinstance(value, bool):
@@ -136,7 +136,7 @@ def tier_provider(config: dict, tier: str) -> str:
 
 def create_tier_client(config: dict, tier: str, **extra) -> BaseLLMClient:
     """创建 ``quick`` 或 ``deep`` 模型层级对应的客户端（#1440）。
-    
+
     若层级使用独立提供商，则使用该提供商的推理参数、输出 token 上限
     参数名和专属端点；未配置独立端点时使用该提供商的默认值。
     ``backend_url`` 只属于全局的 ``llm_provider``。"""
