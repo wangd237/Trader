@@ -8,7 +8,7 @@ from tradingagents.llm_clients.google_client import GoogleClient
 
 @pytest.mark.unit
 class TestGoogleApiKeyStandardization(unittest.TestCase):
-    """Verify GoogleClient accepts unified api_key parameter."""
+    """验证 GoogleClient 可以接收统一的 api_key 参数。"""
 
     @patch("tradingagents.llm_clients.google_client.NormalizedChatGoogleGenerativeAI")
     def test_api_key_handling(self, mock_chat):

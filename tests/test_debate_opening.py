@@ -1,11 +1,8 @@
-"""The first speaker in each debate must not rebut a nonexistent argument (#1176).
+"""每场辩论的首位发言者不应反驳不存在的论点（#1176）。
 
-Each debate round's opening speaker receives an empty opponent response; the
-prompt used to interpolate it into a "refute the opponent" instruction, so models
-fabricated the other side's position. All five debators (bull, bear, and the
-three risk analysts) now substitute an explicit opening marker when the opponent
-has not spoken, and pass a real argument through unchanged.
-"""
+开始时没有对手回复，旧版 Prompt 却要求反驳，导致模型虚构对方立场。
+多空研究员及三位风险辩论员都应在这种情况下使用明确的开场标记，
+若已有真实对手论点则原样传入。"""
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -55,7 +52,7 @@ def _risk_state(**responses):
     return {**_REPORTS, "trader_investment_plan": "plan", "risk_debate_state": base}
 
 
-# --- shared helper ----------------------------------------------------------
+# --- 共用辅助函数 ----------------------------------------------------------
 
 @pytest.mark.unit
 def test_helper_marks_empty_and_passes_through():
@@ -63,7 +60,7 @@ def test_helper_marks_empty_and_passes_through():
     assert opponent_argument_or_opening("  real point ", "bear") == "real point"
 
 
-# --- researchers ------------------------------------------------------------
+# --- 研究员 ------------------------------------------------------------
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
@@ -85,7 +82,7 @@ def test_researcher_passes_real_opponent_argument():
     assert "has not spoken yet" not in captured["prompt"]
 
 
-# --- risk debators ----------------------------------------------------------
+# --- 风险辩论员 ----------------------------------------------------------
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
@@ -94,7 +91,7 @@ def test_researcher_passes_real_opponent_argument():
 def test_risk_opening_has_no_phantom_opponent(factory):
     captured = {}
     factory(_capturing_llm(captured))(_risk_state())
-    # Both opponent slots were empty -> two opening markers, no fabricated args.
+    # 两个对手论点均为空时，应使用两个开场标记，不得虚构参数。
     assert captured["prompt"].count("has not spoken yet") == 2
 
 

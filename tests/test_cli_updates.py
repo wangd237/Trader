@@ -1,9 +1,7 @@
-"""What's new reaches the person at a terminal: a newer release and Tauric's notices.
+"""终端向用户展示新版本及 Tauric 的公告。
 
-The check runs at most daily in a background thread that only writes a cache; the
-notice shown is read from that cache, so a run never waits on the network, and
-unattended runs contact no server at all.
-"""
+每天最多后台检查一次，结果仅写入缓存。
+显示时直接读取缓存，不等待网络；无人值守运行不请求公告服务器。"""
 
 import io
 import json
@@ -25,7 +23,7 @@ class _Tty(io.StringIO):
         return True
 
 
-# --- who sees it -----------------------------------------------------------------
+# --- 显示对象 -----------------------------------------------------------------
 
 @pytest.mark.unit
 @pytest.mark.parametrize("stdin_tty, stdout_tty, ci, opt_out, expected", [
@@ -69,7 +67,7 @@ def test_an_unattended_run_contacts_no_server(monkeypatch):
     assert calls == [] and started == []
 
 
-# --- what it says -----------------------------------------------------------------
+# --- 显示内容 -----------------------------------------------------------------
 
 LATEST = {"version": "0.7.0", "url": "https://github.com/TauricResearch/TradingAgents/releases/tag/v0.7.0",
           "summary": "Update notices and a ChatGPT plan provider."}
@@ -153,7 +151,7 @@ def test_a_notice_is_shown_as_plain_text_with_only_a_web_link():
 
 @pytest.mark.unit
 def test_notices_are_read_from_their_own_key():
-    # Notices have their own key, so ``announcements`` stays a list of strings.
+    # 公告使用独立字段键，``announcements`` 保持字符串列表。
     payload = {"announcements": ["Plain text for older clients"],
                "notices": [{"id": "x", "message": "Targeted", "max_version": "0.6.0"}]}
     assert updates.parse_notices(payload) == payload["notices"]
@@ -161,7 +159,7 @@ def test_notices_are_read_from_their_own_key():
     assert updates.parse_notices({"notices": []}) == []
 
 
-# --- how it is checked ---------------------------------------------------------------
+# --- 检查方式 ---------------------------------------------------------------
 
 @pytest.mark.unit
 def test_a_check_is_due_once_a_day():
@@ -234,7 +232,7 @@ def test_an_unreadable_cache_is_no_news(tmp_path, monkeypatch):
     assert updates.read_cache() == {}
 
 
-# --- the upgrade command for how it was installed ----------------------------------
+# --- 根据安装方式生成升级命令 ----------------------------------
 
 def _dist(direct=None, installer="pip"):
     files = {"direct_url.json": json.dumps(direct) if direct else None, "INSTALLER": installer}

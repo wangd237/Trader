@@ -1,11 +1,8 @@
-"""Configurable output-token cap (#1204).
+"""可配置的输出 token 上限（#1204）。
 
-Some model/gateway combinations (e.g. deepseek-v4-flash deployments) emit
-unbounded reasoning/output and hang or trip an idle timeout. An opt-in
-``max_tokens`` config knob is forwarded to every provider so a run can bound it;
-Gemini names the parameter ``max_output_tokens``, so it is forwarded under the
-right key per provider.
-"""
+部分模型或网关组合的推理输出会非常长，可能挂起或达到空闲超时。
+配置项 max_tokens 会传递给所有提供商；
+Gemini 对应字段名是 max_output_tokens，需要转换。"""
 from __future__ import annotations
 
 import pytest
@@ -13,7 +10,7 @@ import pytest
 import tradingagents.default_config as default_config_module
 from tradingagents.llm_clients.factory import _coerce_max_tokens, build_llm_kwargs
 
-# --- coercion / validation -------------------------------------------------
+# --- 类型转换与校验 -------------------------------------------------
 
 
 @pytest.mark.unit
@@ -43,7 +40,7 @@ def test_coerce_rejects_non_integers(bad):
         _coerce_max_tokens(bad)
 
 
-# --- forwarding into provider kwargs (right key per provider) --------------
+# --- 按提供商正确字段名透传 --------------
 
 
 @pytest.mark.unit
@@ -63,7 +60,7 @@ def test_forwarded_as_max_tokens_for_non_google(provider):
 
 @pytest.mark.unit
 def test_forwarded_as_max_output_tokens_for_google():
-    # Gemini's kwarg name differs; forwarding plain max_tokens would be rejected.
+    # Gemini 的参数名称不同，直接透传 max_tokens 会被拒绝。
     kwargs = build_llm_kwargs({"llm_provider": "google", "max_tokens": 8192})
     assert kwargs["max_output_tokens"] == 8192
     assert "max_tokens" not in kwargs
@@ -81,22 +78,22 @@ def test_invalid_value_fails_loudly():
         build_llm_kwargs({"llm_provider": "openai", "max_tokens": 0})
 
 
-# --- client-side allowlists carry the kwarg --------------------------------
+# --- 客户端允许透传字段 --------------------------------
 
 @pytest.mark.unit
 def test_openai_and_google_clients_accept_the_kwarg():
     from tradingagents.llm_clients import openai_client
     from tradingagents.llm_clients.google_client import GoogleClient  # noqa: F401
     assert "max_tokens" in openai_client._PASSTHROUGH_KWARGS
-    # Google client forwards max_output_tokens through construction.
+    # Google 客户端在实例构造时传递 max_output_tokens。
     llm = GoogleClient("gemini-3.5-flash", api_key="x", max_output_tokens=8192).get_llm()
     assert getattr(llm, "max_output_tokens", None) == 8192
 
 
-# --- env overlay -----------------------------------------------------------
+# --- 环境变量覆盖 -----------------------------------------------------------
 
 def _config_with_env(monkeypatch, **overrides):
-    """The defaults as the environment given here would set them."""
+    """按当前测试环境变量构造默认配置。"""
     for key in list(default_config_module._ENV_OVERRIDES):
         monkeypatch.delenv(key, raising=False)
     for key, val in overrides.items():

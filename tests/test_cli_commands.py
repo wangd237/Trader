@@ -1,8 +1,7 @@
-"""The CLI keeps running an analysis with no arguments, and gains `backtest`.
+"""CLI 无参数时仍执行常规分析，同时支持 `backtest` 子命令。
 
-Every documented invocation is bare (`tradingagents --checkpoint`), so analysis
-has to stay the default action while a second command exists alongside it.
-"""
+文档中的调用形式为 `tradingagents --checkpoint`，因此增加子命令后，
+仍须保持分析功能为默认行为。"""
 
 from __future__ import annotations
 
@@ -81,8 +80,8 @@ class _Summary:
 
 @pytest.mark.unit
 def test_every_command_is_registered_when_run_as_a_module():
-    """README documents `python -m cli.main`, which executes the file top to
-    bottom, so a command defined after the __main__ block would not exist."""
+    """README 使用 `python -m cli.main`，该方式从上到下运行文件。
+    因此新命令需要在 __main__ 入口执行前注册。"""
     import re
     import subprocess
     import sys
@@ -90,15 +89,15 @@ def test_every_command_is_registered_when_run_as_a_module():
     out = subprocess.run([sys.executable, "-m", "cli.main", "backtest", "--help"],
                          capture_output=True, text=True, timeout=120)
     assert out.returncode == 0, out.stderr[-400:]
-    # Where the terminal takes colour, help styles each option and splits
-    # "--start" across escape sequences, so read the text without them.
+    # 终端启用颜色后，帮助文本可能用转义字符切开 --start 等参数；
+    # 检查选项前应先去除这些控制码。
     plain = re.sub(r"\x1b\[[0-9;]*m", "", out.stdout)
     assert "--start" in plain
 
 
 @pytest.mark.unit
 def test_backtest_can_continue_an_interrupted_sweep(runner, monkeypatch, tmp_path):
-    """Resuming is what makes a long sweep practical, and the Python API has it."""
+    """长时间批量回测需要从中断处恢复，Python API 也应支持此行为。"""
     swept = []
     monkeypatch.setattr(m, "run_backtest", lambda *a, **kw: swept.append(kw) or _Result(tmp_path))
     monkeypatch.setattr(m, "summarize", lambda log: _Summary())
@@ -116,8 +115,8 @@ def test_backtest_can_continue_an_interrupted_sweep(runner, monkeypatch, tmp_pat
     (["backtest", ",,", "--start", "2026-06-01", "--end", "2026-06-08"], "ticker"),
 ])
 def test_backtest_rejects_input_that_would_sweep_nothing(runner, args, expected):
-    """An inverted range or an empty ticker list reported a clean zero-cell run,
-    which reads as 'nothing to find' rather than 'you asked for nothing'."""
+    """日期范围颠倒或 ticker 列表为空不能返回表面成功的零任务结果，
+    应明确告知用户输入无效。"""
     result = runner.invoke(m.app, args)
     assert result.exit_code == 1
     assert expected in result.output.lower()
@@ -125,7 +124,7 @@ def test_backtest_rejects_input_that_would_sweep_nothing(runner, args, expected)
 
 @pytest.mark.unit
 def test_backtest_reports_a_setup_failure_in_one_line(runner, monkeypatch):
-    """A missing key or a bad analyst name produced a raw traceback."""
+    """缺少密钥或分析师名称错误时，应显示明确的使用提示，而非原始回溯。"""
     def _explode(*a, **kw):
         raise ValueError("API key for provider 'openai' is not set")
 
