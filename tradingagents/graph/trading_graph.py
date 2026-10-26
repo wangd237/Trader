@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_trade_date(trade_date) -> str:
-    """The run date as a canonical ``YYYY-MM-DD`` string no later than today."""
+    """将运行日期规范化为不晚于今天的 ``YYYY-MM-DD`` 字符串。"""
     value = str(trade_date)
     try:
         canonical = datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d") == value
@@ -41,15 +41,15 @@ def _validate_trade_date(trade_date) -> str:
     return value
 
 
-# Config keys that do not change what a run writes: where it keeps its files,
-# whether it checkpoints, and how often it retries a provider.
+# 不会改变分析结果的配置项：文件保存位置、是否启用检查点、
+# 以及提供商失败后的重试次数。
 _NOT_IN_SIGNATURE = frozenset({
     "results_dir", "data_cache_dir", "memory_log_path", "checkpoint_enabled", "llm_max_retries",
 })
 
 
 class TradingAgentsGraph:
-    """Main class that orchestrates the trading agents framework."""
+    """交易 Agent 框架的核心编排类。"""
 
     def __init__(
         self,
@@ -58,14 +58,13 @@ class TradingAgentsGraph:
         config: dict[str, Any] = None,
         callbacks: list | None = None,
     ):
-        """Initialize the trading agents graph and components.
-
-        Args:
-            selected_analysts: List of analyst types to include
-            debug: Whether to run in debug mode
-            config: Configuration dictionary. If None, uses default config
-            callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
-        """
+        """初始化交易 Agent Graph 及其组件。
+        
+        参数：
+            selected_analysts：需要启用的分析师类型列表。
+            debug：是否启用调试模式。
+            config：配置字典，传入 None 时使用默认配置。
+            callbacks：可选的回调处理器列表（例如跟踪 LLM 或工具调用统计）。"""
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
@@ -85,9 +84,8 @@ class TradingAgentsGraph:
             max_debate_rounds=self.config["max_debate_rounds"],
             max_risk_discuss_rounds=self.config["max_risk_discuss_rounds"],
         )
-        # An analyst takes two graph steps per tool round, plus its first turn
-        # and its wrap-up; a limit past the recursion limit would end the run
-        # there instead.
+        # 分析师每轮工具调用占用两个图步骤，另外还包括首次响应与报告收尾；
+        # 若实际所需步骤数超过递归上限，运行会在此被终止。
         max_tool_rounds, max_recur_limit = self.config["max_tool_rounds"], self.config["max_recur_limit"]
         if 2 * max_tool_rounds + 2 >= max_recur_limit:
             raise ValueError(
@@ -105,10 +103,10 @@ class TradingAgentsGraph:
         )
         self.reflector = Reflector(self.quick_thinking_llm)
 
-        # Graph-shape-affecting run choices, kept for the checkpoint signature.
+        # 保存会影响图结构的运行选项，用于生成检查点签名。
         self.selected_analysts = tuple(selected_analysts)
 
-        # Set up the graph: keep the workflow for recompilation with a checkpointer.
+        # 构建 Graph，同时保留 workflow，便于接入 checkpointer 后重新编译。
         self.workflow = self.graph_setup.setup_graph(selected_analysts, memory_node=self._memory_step)
         self.graph = self.workflow.compile()
         self._checkpointer_ctx = None
@@ -116,37 +114,29 @@ class TradingAgentsGraph:
 
     def resolve_instrument_context(self, ticker: str, asset_type: str = "stock",
                                    trade_date: str | None = None) -> str:
-        """Resolve ticker identity once and return the full instrument context.
-
-        Deterministic yfinance lookup (cached, fail-open) injected into a
-        context string so every agent anchors to the real company instead of
-        hallucinating one from the price chart (#814). Both the propagate()
-        path and the CLI call this so the resolved identity reaches the whole
-        graph regardless of entry point.
-        """
+        """一次性解析 ticker 的真实标的身份，并返回完整标的上下文。
+        
+        通过确定性的 yfinance 查询（带缓存、失败时不中断）构造上下文，
+        让各 Agent 依据真实公司身份分析，避免仅从价格图中臆测公司（#814）。
+        ``propagate()`` 和 CLI 都调用这里，保证不同入口都能向整个图传递标的身份。"""
         identity = resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity, trade_date)
 
     def _memory_as_of(self, trade_date) -> str | None:
-        """Point-in-time cutoff for past-context lessons (#1251).
-
-        A historical/backtest run (trade date before today) filters lessons to
-        those already resolved by the trade date. A current-date run returns
-        None, disabling the filter so live behavior and pre-migration entries
-        (which have no stored resolution date) are unaffected.
-        """
+        """确定历史经验可用性的时间截止点（#1251）。
+        
+        历史分析或回测（交易日早于今天）只使用该交易日之前已结算的经验。
+        当日运行返回 None，即关闭过滤，使实时运行和迁移前没有结算日期的
+        旧记录不受影响。"""
         return str(trade_date) if is_historical(trade_date) else None
 
     def _run_signature(self, asset_type: str, portfolio=None) -> str:
-        """Run inputs that must invalidate a checkpoint if changed.
-
-        Keyed into the checkpoint thread ID so a resume under a different analyst
-        selection, debate/risk depth, or asset mode starts fresh instead of
-        silently continuing the previous graph (#1089). The rest of the config
-        counts too (provider, models, endpoint, language, vendors, limits): a
-        resume must not carry reports that other settings produced. Only where
-        the run keeps its files and how it retries are left out.
-        """
+        """返回改变后必须使现有检查点失效的运行参数。
+        
+        这些参数参与生成检查点 thread ID，因此分析师组合、辩论和风险深度、
+        资产模式变化后会从头运行，避免悄然沿用旧图（#1089）。
+        其余配置（提供商、模型、端点、语言、数据源、上限）也必须参与，
+        防止恢复到其他配置生成的报告；仅排除文件保存路径和重试行为。"""
         settings = {k: v for k, v in self.config.items() if k not in _NOT_IN_SIGNATURE}
         digest = hashlib.sha256(json.dumps(settings, sort_keys=True, default=str).encode()).hexdigest()[:12]
         return "|".join([
@@ -154,32 +144,28 @@ class TradingAgentsGraph:
             f"debate={self.config['max_debate_rounds']}",
             f"risk={self.config['max_risk_discuss_rounds']}",
             f"asset={asset_type}",
-            # None, an empty book and a changed book are three different runs.
+            # None、空仓位记录以及发生变化的仓位记录应视为三种不同运行。
             f"portfolio={portfolio.fingerprint() if portfolio is not None else 'none'}",
-            # The layout itself: a checkpoint saved when analysts ran one after
-            # another has pending nodes this graph no longer has, and one saved
-            # before the Memory Log step would resume without the lessons.
+            # 图拓扑本身也会变化：如果旧检查点来自分析师串行执行的图，
+            # 其中可能存在当前并行图不再拥有的待执行节点；
+            # 如果检查点建立于 Memory Log 节点引入之前，恢复后将缺少历史经验。
             "analysts=parallel",
             "memory=parallel",
             f"settings={digest}",
         ])
 
     def propagate(self, company_name, trade_date, asset_type: str = "stock", portfolio=None):
-        """Run the trading agents graph for a company on a specific date.
-
-        ``asset_type`` selects between the stock pipeline (default) and the
-        crypto pipeline (``"crypto"``) shipped in #567 — the CLI auto-detects
-        from the ticker; programmatic callers pass it explicitly. When
-        ``checkpoint_enabled`` is set in config, the graph is recompiled with
-        a per-ticker SqliteSaver so a crashed run can resume from the last
-        successful node on a subsequent invocation with the same ticker+date.
-
-        Returns ``(final_state, signal)`` where ``signal`` is one of the 5-tier
-        ratings (Buy / Overweight / Hold / Underweight / Sell) or ``"REVIEW"``
-        when the decision had no parseable rating (#1170); guard with
-        ``tradingagents.agents.rating.is_review`` before mapping it to the
-        PortfolioRating enum.
-        """
+        """针对指定公司和日期执行交易 Agent Graph。
+        
+        ``asset_type`` 用来切换默认股票流程和 #567 新增的加密资产流程
+        （``"crypto"``）。CLI 根据 ticker 自动识别，程序调用者则需显式传入。
+        配置启用 ``checkpoint_enabled`` 时，图会使用每个 ticker 独立的
+        SqliteSaver 重新编译；相同 ticker 和日期的后续运行可从上次成功节点恢复。
+        
+        返回 ``(final_state, signal)``，其中 ``signal`` 为五级评级
+        （Buy / Overweight / Hold / Underweight / Sell），或在无法解析评级时
+        返回 ``"REVIEW"``（#1170）。映射到 PortfolioRating 枚举前应先调用
+        ``tradingagents.agents.rating.is_review`` 进行判断。"""
         trade_date = _validate_trade_date(trade_date)
 
         with run_config(self.config), \
@@ -190,16 +176,13 @@ class TradingAgentsGraph:
             )
 
     def begin_checkpoint(self, company_name, trade_date, asset_type: str = "stock", portfolio=None) -> str | None:
-        """Recompile the graph with a per-ticker checkpointer and return the
-        ``thread_id`` to inject into the stream/invoke ``config`` (or ``None``
-        when checkpointing is disabled).
-
-        Pair every call with :meth:`end_checkpoint` in a ``finally``. Both
-        ``propagate`` (via :meth:`checkpoint_scope`) and the CLI stream path use
-        this so ``--checkpoint`` actually resumes (#1249); previously the setup
-        lived only inside ``propagate`` and the CLI streamed the checkpointer-less
-        graph, making the flag a no-op.
-        """
+        """使用每个 ticker 专属的 checkpointer 重新编译图，并返回要注入
+        stream/invoke ``config`` 的 ``thread_id``；禁用检查点时返回 None。
+        
+        每次调用后都必须在 ``finally`` 中执行 :meth:`end_checkpoint`。
+        ``propagate``（通过 :meth:`checkpoint_scope`）和 CLI 流式入口均使用
+        这套机制，确保 ``--checkpoint`` 真正支持恢复（#1249）。
+        以前只有 ``propagate`` 配置了检查点，CLI 使用普通图，导致标志无效。"""
         self._resuming = False
         if not self.config.get("checkpoint_enabled"):
             return None
@@ -219,17 +202,15 @@ class TradingAgentsGraph:
         return thread_id(company_name, str(trade_date), signature)
 
     def checkpoint_input(self, init_state):
-        """The value to stream/invoke: ``None`` to resume an existing checkpoint,
-        else the initial state for a fresh run.
-
-        LangGraph resumes an interrupted thread when invoked with ``None``;
-        re-passing the initial state instead appends it through the message
-        reducer, duplicating messages in the resumed state (#1249).
-        """
+        """返回流式执行或调用图时需要传入的值：从检查点恢复时为 None，
+        全新运行时为初始状态。
+        
+        LangGraph 在传入 None 时恢复中断的线程；如果重新传入初始状态，
+        消息 reducer 会重复追加这些消息，造成恢复后的状态包含重复消息（#1249）。"""
         return None if self._resuming else init_state
 
     def end_checkpoint(self):
-        """Restore the plain uncheckpointed graph after a checkpointed run."""
+        """检查点运行结束后，恢复不带 checkpointer 的普通 Graph。"""
         if self._checkpointer_ctx is not None:
             self._checkpointer_ctx.__exit__(None, None, None)
             self._checkpointer_ctx = None
@@ -238,14 +219,14 @@ class TradingAgentsGraph:
 
     @contextmanager
     def checkpoint_scope(self, company_name, trade_date, asset_type: str = "stock", portfolio=None):
-        """Context-manager form of begin/end_checkpoint for the propagate path."""
+        """供 propagate 路径使用的 begin/end_checkpoint 上下文管理器。"""
         try:
             yield self.begin_checkpoint(company_name, trade_date, asset_type, portfolio)
         finally:
             self.end_checkpoint()
 
     def clear_checkpoint_on_success(self, company_name, trade_date, asset_type: str = "stock", portfolio=None):
-        """Drop a completed run's checkpoint so a later run starts fresh (#1249)."""
+        """删除已完成运行的检查点，保证后续运行重新开始（#1249）。"""
         if self.config.get("checkpoint_enabled"):
             clear_checkpoint(
                 self.config["data_cache_dir"], company_name, str(trade_date),
@@ -253,11 +234,10 @@ class TradingAgentsGraph:
             )
 
     def run_settings(self) -> dict:
-        """What produces this graph's runs, for the saved report and state log.
-
-        An allowlist: endpoints (a backend_url can carry credentials), keys and
-        local paths are never recorded.
-        """
+        """生成保存到报告和状态日志中的运行来源信息。
+        
+        只记录白名单字段；端点（backend_url 可能包含凭据）、密钥和本地路径
+        一律不写入。"""
         cfg = self.config
         return {
             "version": tradingagents.__version__,
@@ -275,28 +255,26 @@ class TradingAgentsGraph:
         }
 
     def save_reports(self, final_state, ticker, save_path=None, html=True) -> Path:
-        """Write the report tree for a completed run, like the CLI does.
-
-        Programmatic callers get the same on-disk reports the CLI produces. Pass
-        an explicit ``save_path`` or let it default under ``results_dir``; the
-        report is also written as one HTML page unless ``html`` is False.
-        """
+        """与 CLI 一样，为已完成的运行保存整套报告文件。
+        
+        程序调用者也会得到与 CLI 相同的磁盘报告；可以显式指定
+        ``save_path``，否则默认写入 ``results_dir``。
+        除非 ``html`` 为 False，否则还会生成一个 HTML 报告页面。"""
         if save_path is None:
             save_path = self.default_report_path(ticker)
         return write_report_tree(final_state, ticker, save_path, settings=self.run_settings(), html=html)
 
     def default_report_path(self, ticker) -> Path:
-        """Where a run's reports go unless told otherwise: under results_dir, stamped now."""
+        """返回默认报告输出路径：位于 results_dir 下，并使用当前时间命名。"""
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         return Path(self.config["results_dir"]) / "reports" / f"{safe_ticker_component(ticker)}_{stamp}"
 
     def create_run_state(self, company_name, trade_date, asset_type: str = "stock", portfolio=None):
-        """Build a run's initial state; propagate() and the CLI both start here.
-
-        Injects the resolved instrument identity for every agent (#814). The
-        memory log's lessons are not here: the graph's Memory Log step settles
-        and loads them alongside the analysts (see ``_memory_step``).
-        """
+        """构造运行初始状态；propagate() 和 CLI 都从这里开始。
+        
+        向所有 Agent 注入已解析的标的身份（#814）。Memory Log 经验不在这里
+        加载，而由 Graph 的 Memory Log 节点与分析师并行结算并读取
+        （见 ``_memory_step``）。"""
         return self.propagator.create_initial_state(
             company_name,
             trade_date,
@@ -306,18 +284,16 @@ class TradingAgentsGraph:
         )
 
     def _memory_step(self, state):
-        """The graph's Memory Log step, alongside the analysts (#1428): settle every
-        ticker's due decisions (#1445), then return the lessons known by the
-        trade date for the Portfolio Manager (#1251).
-
-        Settling fetches prices and asks the model for a reflection per decision,
-        so it runs beside the analysts instead of before them. A failure here
-        does not end the run: the analysts' work is kept, the lessons already in
-        the log are used, and the report says what could not be settled.
-        """
+        """Graph 的 Memory Log 节点与分析师并行运行（#1428）：
+        结算全部 ticker 到期的历史决策（#1445），再向 Portfolio Manager
+        返回在当前交易日期之前已经产生的经验（#1251）。
+        
+        结算需要获取价格，并请求模型对每笔决策生成反思，因此安排在分析师
+        执行期间而非之前。此节点失败不会中断整次分析：保留分析师结果、
+        继续使用日志中已有的经验，并在报告中说明哪些决策未能结算。"""
         note = ""
         try:
-            # Another run settling the same log does the work; this one goes on.
+            # 若其他运行正在结算同一日志，则由其完成结算，当前运行继续执行。
             done = self.settle_all_pending(wait=False)
             if done.failed:
                 note = (f"{len(done.failed)} past decision(s) could not be settled this run "
@@ -335,29 +311,27 @@ class TradingAgentsGraph:
         return {"past_context": past_context, "memory_note": note}
 
     def settle_pending(self, company_name) -> settlement.Settlement:
-        """Settle this ticker's decisions whose holding window has now traded.
-
-        A run settles every due decision alongside its analysts, so its own
-        decision stays pending until a later run. A caller that is done
-        analyzing a ticker (a backtest sweep, a scheduled job) calls this to
-        settle it now. Returns what was settled and what failed.
-        """
+        """结算当前 ticker 中持仓观察期已结束的决策。
+        
+        每次运行只会在分析师执行期间结算已到期的历史决策；本次新决策
+        要等后续运行才到期。如果调用者已经完成该 ticker 的分析
+        （例如回测批处理、定时任务），可以调用本方法立即尝试结算。
+        返回成功结算和失败的项目。"""
         with run_config(self.config):
             return settlement.settle_pending(company_name, self.memory_log, self.reflector, self.config)
 
     def settle_all_pending(self, wait: bool = True) -> settlement.Settlement:
-        """Settle every ticker's decisions whose holding window has now traded (#1445).
-
-        For a scheduler whose tickers rotate: a ticker it stops analysing would
-        otherwise keep its decisions pending, and their lessons out of later runs.
-        With ``wait=False`` a pass already running on the same log is not waited for.
-        """
+        """结算所有 ticker 中持仓观察期已结束的决策（#1445）。
+        
+        对轮换 ticker 的调度器而言，如果停止分析某个 ticker，
+        其决策可能永远处于待结算状态，后续也无法使用相应经验。
+        设置 ``wait=False`` 时，不等待同一日志上已在执行的结算任务。"""
         with run_config(self.config):
             return settlement.settle_all_pending(self.memory_log, self.reflector, self.config, wait=wait)
 
     def record_decision(self, company_name, trade_date, final_state):
-        """Record a finished run: its state log, and its decision in the memory log
-        for reflection on the next same-ticker run. propagate() and the CLI both end here."""
+        """记录已完成运行：保存状态日志，并将决策写入记忆日志，
+        供下次分析相同 ticker 时反思。propagate() 和 CLI 都在此收尾。"""
         self._log_state(trade_date, final_state)
         decision = final_state.get("final_trade_decision")
         if not decision:
@@ -371,19 +345,19 @@ class TradingAgentsGraph:
 
     def _run_graph(self, company_name, trade_date, asset_type: str = "stock",
                    checkpoint_thread_id: str | None = None, portfolio=None):
-        """Execute the graph and write the resulting state to disk and memory log."""
+        """执行 Graph，并将最终状态写入磁盘和记忆日志。"""
         init_agent_state = self.create_run_state(company_name, trade_date, asset_type, portfolio)
         args = self.propagator.get_graph_args()
 
-        # Inject the checkpoint thread_id (from checkpoint_scope) so the same
-        # ticker+date+graph-shape resumes; a different one starts fresh (#1089).
+        # 注入 checkpoint_scope 提供的 thread_id，使相同
+        #  ticker、日期和图结构能够恢复；不同组合重新开始（#1089）。
         if checkpoint_thread_id is not None:
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = checkpoint_thread_id
 
-        # None resumes an existing checkpoint; init_agent_state starts fresh (#1249).
+        # 传入 None 表示恢复已有检查点；init_agent_state 表示全新运行（#1249）。
         graph_input = self.checkpoint_input(init_agent_state)
         if self.debug:
-            # A state repeats the messages before it, so each prints once (#1027).
+            # 每个状态都包含之前的消息，因此每条消息只打印一次（#1027）。
             final_state, printed = {}, set()
             for messages, state in self.stream_run(graph_input, **args):
                 for msg in messages:
@@ -398,26 +372,25 @@ class TradingAgentsGraph:
 
         self.record_decision(company_name, trade_date, final_state)
 
-        # Clear checkpoint on successful completion to avoid stale state.
+        # 成功完成后清理检查点，避免下次读取过期状态。
         self.clear_checkpoint_on_success(company_name, trade_date, asset_type, portfolio)
 
         return final_state, run_rating(final_state)
 
     def stream_run(self, graph_input, **args):
-        """Stream a run as ``(messages, state)`` pairs.
-
-        ``messages`` are the agents' messages, the analysts' included. ``state``
-        is the run's state after a top-level step; for a step inside an analyst's
-        graph it is that analyst's report once filed, else None.
-
-        Each analyst works in a graph of its own, and the run's state takes the
-        analysts' reports only when the slowest has finished, so their messages
-        and reports come from their own finished steps ("tasks") as they happen.
-        """
+        """以 ``(messages, state)`` 的形式流式返回运行结果。
+        
+        ``messages`` 包含各 Agent（包括分析师）的消息；``state`` 为顶层
+        步骤执行后的运行状态。若是分析师子图内部步骤，只有报告提交后
+        才能取得该报告，否则为 None。
+        
+        每个分析师都在独立子图中运行；顶层状态须等待最慢的分析师完成，
+        才统一接收所有报告。因此，为了及时输出消息和报告，应在各自
+        子图任务完成时就流式返回其结果。"""
         args = {**args, "stream_mode": ["values", "tasks"]}
-        # The graph's own config serves every tool call, as in propagate(), even
-        # when the process-wide config has changed since. Each step runs in the
-        # run's context, so the caller keeps its own between steps.
+        # 与 propagate() 一样，每次工具调用使用该 Graph 自身的配置，
+        # 即使进程全局配置后来改变也不受影响。每个步骤在本次运行的
+        # 上下文中执行，调用者在步骤之间也能保持自己的配置。
         context = run_config_context(self.config)
         stream = context.run(self.graph.stream, graph_input, subgraphs=True, **args)
         try:
@@ -435,7 +408,7 @@ class TradingAgentsGraph:
             context.run(stream.close)
 
     def _log_state(self, trade_date, final_state):
-        """Write a run's final state to JSON under the run's own ticker."""
+        """将运行最终状态保存为 JSON，目录按本次 ticker 划分。"""
         entry = {
             "company_of_interest": final_state["company_of_interest"],
             "trade_date": final_state["trade_date"],
@@ -464,12 +437,12 @@ class TradingAgentsGraph:
             "run_settings": self.run_settings(),
         }
 
-        # A ticker that would escape the results directory is rejected.
+        # 拒绝会造成结果目录路径逃逸的 ticker。
         safe_ticker = safe_ticker_component(final_state["company_of_interest"])
         directory = Path(self.config["results_dir"]) / safe_ticker / "TradingAgentsStrategy_logs"
         directory.mkdir(parents=True, exist_ok=True)
 
         log_path = directory / f"full_states_log_{trade_date}.json"
         with open(log_path, "w", encoding="utf-8") as f:
-            # Reports can be in any language and this file is read by a person.
+            # 报告可能采用任意语言，且此文件供人直接阅读。
             json.dump(entry, f, indent=4, ensure_ascii=False)
