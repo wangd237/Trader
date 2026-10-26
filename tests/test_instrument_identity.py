@@ -1,5 +1,5 @@
-"""Tests for deterministic instrument-identity resolution (#814) and the
-context-anchored message placeholder (#888)."""
+"""测试确定性的标的身份识别（#814），
+以及由运行上下文约束的缺失消息占位符（#888）。"""
 
 import unittest
 from unittest.mock import patch
@@ -56,8 +56,8 @@ class ResolveInstrumentIdentityTests(unittest.TestCase):
             self.assertEqual(resolve_instrument_identity("TOTDY"), {})
 
     def test_a_failed_lookup_is_asked_again(self):
-        # A long process (a backtest) must not run every later cell without an
-        # identity because one request failed.
+        # 长时间运行的回测不能因为一次身份查询失败，
+        # 就让之后所有网格单元都缺失标的身份。
         with patch("tradingagents.dataflows.vendors.yahoo.market.yf.Ticker") as mock:
             type(mock.return_value).info = property(lambda self: (_ for _ in ()).throw(TimeoutError()))
             self.assertEqual(resolve_instrument_identity("TOTDY"), {})
@@ -111,7 +111,7 @@ class GetInstrumentContextFromStateTests(unittest.TestCase):
         self.assertEqual(get_instrument_context_from_state(state), "PRECOMPUTED")
 
     def test_fallback_is_network_free_ticker_only(self):
-        # No instrument_context and no yfinance call — must not hit the network.
+        # 没有 instrument_context 和 yfinance 调用时不能意外联网。
         with patch("tradingagents.dataflows.vendors.yahoo.market.yf.Ticker") as mock:
             context = get_instrument_context_from_state(
                 {"company_of_interest": "NVDA", "asset_type": "stock"}

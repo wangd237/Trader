@@ -1,10 +1,8 @@
-"""Backtesting: many single-shot decisions, scored by the memory log.
+"""回测：针对多组标的和日期执行单次决策，再依据 Memory Log 评分。
 
-A run already records its rating and later settles it with realized and alpha
-return against the regional benchmark. A backtest is that machinery over a grid
-of tickers and dates, aggregated. It evaluates decision quality; it does not
-simulate a portfolio, so there is no execution, no fees and no equity curve.
-"""
+系统原本就会记录评级，并在结算后计算实际收益及对地区基准的 Alpha。
+回测把这套机制扩展到 ticker × 日期网格，并汇总结果。
+它评价的是决策质量，不模拟真实投资组合，因此不涉及成交、费用或净值曲线。"""
 
 from __future__ import annotations
 
@@ -36,7 +34,7 @@ def test_grid_rejects_a_non_canonical_date():
 
 
 class _FakeGraph:
-    """Stands in for TradingAgentsGraph, writing to the log the harness gave it."""
+    """模拟 TradingAgentsGraph，将结果写入测试框架传入的日志。"""
 
     instances: list = []
     fail_on: set = set()
@@ -97,8 +95,8 @@ def test_a_cell_already_in_the_log_is_not_run_again(tmp_path):
 
 @pytest.mark.unit
 def test_every_ticker_is_settled_after_the_grid(tmp_path):
-    """Settlement runs at the start of the next same-ticker run, so the last
-    date of each ticker would stay pending without an explicit pass."""
+    """结算发生在同一 ticker 的下一次运行开始时，
+    因此各 ticker 的最后一个日期需要额外结算，否则会一直待处理。"""
     run_backtest(["NVDA", "AAPL"], ["2026-01-05", "2026-01-12"], _config(tmp_path))
     assert sorted(_FakeGraph.instances[-1].settled) == ["AAPL", "NVDA"]
 
@@ -148,14 +146,14 @@ def test_summary_states_what_it_cannot_prove(tmp_path):
 
 @pytest.mark.unit
 def test_the_analyst_set_under_test_is_the_one_that_runs(tmp_path):
-    """A backtest of a two-analyst setup must not silently run four."""
+    """只选择两个分析师的回测不能擅自运行四个分析师。"""
     run_backtest(["NVDA"], ["2026-01-05"], _config(tmp_path), selected_analysts=["market", "news"])
     assert _FakeGraph.instances[-1].analysts == ["market", "news"]
 
 
 @pytest.mark.unit
 def test_a_run_id_cannot_escape_the_results_directory(tmp_path):
-    """run_id becomes a path segment, so it is validated like a ticker is."""
+    """run_id 会成为路径组件，必须像 ticker 一样进行安全校验。"""
     with pytest.raises(ValueError):
         run_backtest(["NVDA"], ["2026-01-05"], _config(tmp_path), run_id="../../escaped")
     with pytest.raises(ValueError):
@@ -164,8 +162,8 @@ def test_a_run_id_cannot_escape_the_results_directory(tmp_path):
 
 @pytest.mark.unit
 def test_a_failed_settlement_does_not_lose_the_remaining_tickers(tmp_path, monkeypatch):
-    """Settlement reflects with an LLM, so it can fail; the sweep still returns
-    its result and every other ticker still gets settled."""
+    """结算反思需要 LLM 调用，因此可能失败；
+    但整轮扫描仍应返回结果，并继续结算其他 ticker。"""
     settled = []
 
     def _settle(self, ticker):
@@ -197,8 +195,8 @@ def _scored(tmp_path, rows):
 
 @pytest.mark.unit
 def test_a_bearish_call_that_fell_counts_as_right(tmp_path):
-    """Alpha below the benchmark is the outcome a Sell predicted; scoring it as
-    a miss reported the system as wrong exactly when it was right."""
+    """相对基准的 Alpha 为负符合 Sell 的方向预测；
+    将其计为失败会在模型正确时反而扣分。"""
     scores = _scored(tmp_path, [
         ("NVDA", "2026-01-05", "**Rating**: Sell\n\nx", (-0.08, -0.05)),
         ("AAPL", "2026-01-05", "**Rating**: Underweight\n\nx", (-0.03, -0.02)),
@@ -239,8 +237,7 @@ def test_the_report_names_the_window_the_scores_cover(tmp_path):
 
 @pytest.mark.unit
 def test_the_window_reported_is_the_one_the_outcomes_used(tmp_path):
-    """The log records the window each outcome was measured over; the summary
-    must not claim a different one."""
+    """日志记录了每笔结果的实际观察窗口，汇总不能报告不同的窗口。"""
     log = TradingMemoryLog({"memory_log_path": str(tmp_path / "m.md")})
     log.store_decision("NVDA", "2026-01-05", "**Rating**: Buy\n\nx")
     log.update_with_outcome("NVDA", "2026-01-05", 0.1, 0.04, 21, "note", "2026-02-01")
@@ -250,7 +247,7 @@ def test_the_window_reported_is_the_one_the_outcomes_used(tmp_path):
 
 @pytest.mark.unit
 def test_a_backtest_result_is_summarized_directly(tmp_path):
-    """The result names its own log, so a caller never builds the log to score it."""
+    """结果应提供自身对应的日志路径，调用方不必自行构造路径。"""
     from tradingagents.backtest import BacktestResult
 
     path = _log_with(tmp_path, [("NVDA", "2026-01-05", "Rating: Buy\n\nx", (0.10, 0.04))])
