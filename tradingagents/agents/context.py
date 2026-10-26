@@ -1,4 +1,4 @@
-"""Prompt context shared by the agents: instrument identity, output language and portfolio."""
+"""Agent 共用的 Prompt 上下文：标的身份、输出语言与投资组合信息。"""
 
 import functools
 import logging
@@ -12,21 +12,19 @@ logger = logging.getLogger(__name__)
 
 
 def get_language_instruction() -> str:
-    """Return a prompt instruction for the configured output language.
+    """返回指定输出语言对应的 Prompt 指令。
 
-    Returns empty string when English (default), so no extra tokens are used.
-    Applied to every agent whose output reaches the saved report —
-    analysts, researchers, debaters, research manager, trader, and
-    portfolio manager — so a non-English run produces a fully localized
-    report rather than a mix of languages.
-    """
+    默认英语时返回空字符串，不消耗额外 token。
+    该指令应用于所有会输出到报告的 Agent，包括分析师、研究员、
+    辩论员、研究经理、Trader 和投资组合经理，
+    确保非英语运行生成完整的本地化报告，而不是中英混杂。"""
     from tradingagents.dataflows.config import get_config
     lang = get_config().get("output_language", "English")
     if lang.strip().lower() == "english":
         return ""
-    # The labelled lines are read by the program, so they keep their English
-    # label and value: a translated rating line leaves the reader prose to
-    # search, where a negated rating ("not a Sell") reads as the call (#1435).
+    # 带标签的字段由程序解析，因此保持英文标签与取值。
+    # 如果翻译评级标签，下游将退回到搜索自然语言正文，
+    # 而包含否定的语句（如 “not a Sell”）可能被误判为 Sell（#1435）。
     return (
         f" Write your entire response in {lang}, except the labelled lines the format"
         f" asks for (the \"**Rating**:\" line, \"FINAL TRANSACTION PROPOSAL:\"):"
@@ -35,13 +33,11 @@ def get_language_instruction() -> str:
 
 
 def opponent_argument_or_opening(text: str, opponent: str) -> str:
-    """Opponent's latest argument, or an explicit opening marker when empty.
+    """返回对手最近一次论点；若为空则返回明确的开场标记。
 
-    The first speaker in each debate round receives an empty opponent response;
-    interpolating it into a "refute the opponent" prompt makes the model
-    fabricate the other side's position. Returning a clear "has not spoken yet"
-    marker instead lets it open with its own case (#1176).
-    """
+    每轮辩论的首个发言者没有对手回复，如果直接将空文本插入
+    “反驳对手”的 Prompt，模型可能虚构对方立场。
+    改用“对手尚未发言”标记，让它正常提出自己的初始论点（#1176）。"""
     text = (text or "").strip()
     if text:
         return text
@@ -49,7 +45,7 @@ def opponent_argument_or_opening(text: str, opponent: str) -> str:
 
 
 def _clean_identity_value(value: Any) -> str | None:
-    """Return a trimmed string, or None for empty / placeholder-ish values."""
+    """返回去除首尾空白的字符串；为空或占位文本时返回 None。"""
     if not isinstance(value, str):
         return None
     cleaned = value.strip()
@@ -59,22 +55,16 @@ def _clean_identity_value(value: Any) -> str | None:
 
 
 def resolve_instrument_identity(ticker: str) -> dict:
-    """Resolve deterministic identity metadata (company name, sector, …) for a ticker.
+    """为 ticker 解析确定性的身份信息（公司名称、板块等）。
 
-    This exists to stop the pipeline from hallucinating a *different* company
-    when a chart pattern suggests a different industry than the real one
-    (#814): without a ground-truth name, the market analyst would pattern-match
-    the price action to a narrative and invent an identity that then cascaded
-    through every downstream agent.
+    这样可以防止分析师仅根据价格走势联想出错误行业，进而编造出
+    另一家公司的身份，并将错误传递给全部下游 Agent（#814）。
 
-    Best-effort by design: if yfinance is unavailable, rate-limited, or doesn't
-    recognise the ticker, we return ``{}`` and the caller falls back to
-    ticker-only context rather than failing before analysis starts. An answer
-    is cached for the process; a failed lookup is asked again next time.
-
-    Identity resolves for the same instrument the price path fetches
-    (``XAUUSD`` -> ``GC=F``, #983).
-    """
+    采用尽力而为策略：yfinance 不可用、被限流或不认识 ticker 时
+    返回 ``{}``，由调用方退回仅含 ticker 的上下文，
+    不会让分析在开始前失败。成功查询结果会在进程内缓存，
+    失败查询下次仍会重试。
+    身份解析与价格路径使用相同的标的映射，例如 ``XAUUSD`` → ``GC=F``（#983）。"""
     try:
         return _identity(ticker)
     except Exception as exc:  # noqa: BLE001 — fail open, never block the run
@@ -84,7 +74,7 @@ def resolve_instrument_identity(ticker: str) -> dict:
 
 @functools.lru_cache(maxsize=256)
 def _identity(ticker: str) -> dict:
-    """The vendor's identity fields for ``ticker``; raises if the lookup fails."""
+    """返回数据源中指定 ``ticker`` 的身份字段；查询失败时抛出异常。"""
     info = get_company_profile(ticker)
     identity: dict[str, str] = {}
     company_name = _clean_identity_value(info.get("longName")) or _clean_identity_value(
@@ -110,19 +100,14 @@ def build_instrument_context(
     identity: Mapping[str, str] | None = None,
     trade_date: str | None = None,
 ) -> str:
-    """Describe the exact instrument so agents preserve identity and ticker.
+    """描述准确的交易标的，确保 Agent 始终使用正确身份与 ticker。
 
-    When ``identity`` is provided (resolved deterministically via
-    :func:`resolve_instrument_identity`), the company name and business
-    classification are injected so agents anchor to the real company rather
-    than pattern-matching the price chart to a wrong one (#814).
+    提供 ``identity``（由 :func:`resolve_instrument_identity` 确定性解析）
+    后，会注入公司名称与业务分类，防止 Agent 根据价格图误认公司（#814）。
 
-    That profile carries no historical vintage: it describes the company today.
-    A run dated earlier gets the current name alone, as a way to tell the
-    company apart from others rather than as what it was called then; a sector,
-    industry or exchange it holds today is not given, since it may not have held
-    on the analysis date.
-    """
+    该身份资料只有当下快照，没有历史版本。历史日期运行仅保留当前公司名
+    用于区分公司，不会注入现在的板块、行业或交易所信息，
+    因为它们在分析日期可能并不成立。"""
     is_crypto = asset_type == "crypto"
     instrument_label = "asset" if is_crypto else "instrument"
     context = (
@@ -170,14 +155,12 @@ def build_instrument_context(
 
 
 def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
-    """Return the instrument context for the current run.
+    """返回当前运行的标的上下文。
 
-    Prefers the identity-resolved context computed once at run start and
-    stored on the state (see ``TradingAgentsGraph.resolve_instrument_context``).
-    Falls back to a ticker-only context — with no network lookup — when the
-    state was constructed without it (bare programmatic states, tests), so a
-    consumer is never forced to make a yfinance call mid-graph.
-    """
+    优先使用运行开始时解析并写入状态的身份信息
+    （见 ``TradingAgentsGraph.resolve_instrument_context``）。
+    若状态没有此信息（例如直接构造的状态或测试），则退回
+    仅含 ticker 的上下文，不在 Graph 执行中途发起网络查询。"""
     context = state.get("instrument_context")
     if isinstance(context, str) and context.strip():
         return context
@@ -188,13 +171,11 @@ def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
 
 
 def report_or_absent(text: str, source: str) -> str:
-    """An analyst's report, or a marker saying it was never produced.
+    """返回分析师报告；若没有报告则返回明确的缺失标记。
 
-    A report is empty when its analyst was not selected, refused, or returned
-    nothing. Interpolating that into a labelled section presents an absence as a
-    blank finding, and the reading agent fills it in from nothing, the same way
-    an empty opponent argument used to invite an invented rebuttal (#1176).
-    """
+    未选择分析师、模型拒绝回答或返回空文本时，报告都可能为空。
+    若直接在带标题的章节插入空文本，下游 Agent 可能把缺失信息
+    臆测成具体结论，类似于空白对手论点导致虚构反驳的问题（#1176）。"""
     text = (text or "").strip()
     if text:
         return text
@@ -202,12 +183,10 @@ def report_or_absent(text: str, source: str) -> str:
 
 
 def get_portfolio_context_from_state(state: Mapping[str, Any]) -> str:
-    """Return the caller's portfolio block, or a notice that none was given.
+    """返回调用方提供的投资组合信息，或明确说明未提供。
 
-    A run without portfolio context must not read as a flat book: the agents
-    would otherwise size as if the caller held nothing, which is a claim about
-    an account we were never told about.
-    """
+    没有持仓上下文不代表空仓；否则 Agent 会假设账户没有持仓
+    并据此计算头寸规模，实际上调用者并未提供这种账户事实。"""
     context = state.get("portfolio_context")
     if isinstance(context, str) and context.strip():
         return context
