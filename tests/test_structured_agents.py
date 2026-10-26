@@ -1,11 +1,8 @@
-"""Tests for structured-output agents (Trader, Research Manager, Sentiment Analyst).
+"""结构化输出 Agent 测试：Trader、Research Manager 和 Sentiment Analyst。
 
-The Portfolio Manager has its own coverage in tests/test_memory_log.py
-(which exercises the full memory-log → PM injection cycle).  This file
-covers the parallel schemas, render functions, and graceful-fallback
-behavior we added for the Trader, Research Manager, and Sentiment Analyst
-so they share the same deterministic output shape.
-"""
+Portfolio Manager 已在 test_memory_log.py 中覆盖完整的经验注入流程。
+本文件验证其他三类 Agent 的 Pydantic Schema、Markdown 渲染和降级机制，
+保证不同模型提供商仍产生可预测的格式。"""
 
 import inspect
 from unittest.mock import MagicMock
@@ -42,8 +39,8 @@ class TestRenderTraderProposal:
         md = render_trader_proposal(p)
         assert "**Action**: Hold" in md
         assert "**Reasoning**: Balanced setup; no edge." in md
-        # The trailing FINAL TRANSACTION PROPOSAL line is preserved for the
-        # analyst stop-signal text and any external code that greps for it.
+        # 末尾 FINAL TRANSACTION PROPOSAL 行必须保留，
+        # 供分析师停止信号及外部基于文本的解析器使用。
         assert "FINAL TRANSACTION PROPOSAL: **HOLD**" in md
 
     def test_optional_fields_included_when_present(self):
@@ -62,8 +59,7 @@ class TestRenderTraderProposal:
         assert "FINAL TRANSACTION PROPOSAL: **BUY**" in md
 
     def test_optional_fields_are_named_as_not_provided(self):
-        """An omitted line reads as a field nobody asked for; the reader cannot
-        tell it from a level the trader declined to set."""
+        """如果省略整行，读者无法区分 Schema 未要求该字段和 Trader 主动未设置数值。"""
         p = TraderProposal(action=TraderAction.SELL, reasoning="Guidance cut.")
         md = render_trader_proposal(p)
         for field in ("Entry Price", "Stop Loss", "Position Sizing"):
@@ -73,8 +69,8 @@ class TestRenderTraderProposal:
 
 @pytest.mark.unit
 class TestNullishFloatCoercion:
-    """A weak LLM may write "None"/"N/A" into an optional float field (#1058);
-    coerce those to None so the structured call validates instead of erroring."""
+    """较弱模型可能将可选数值写成 "None" 或 "N/A"，
+    应转为 None，避免结构化校验失败（#1058）。"""
 
     def test_trader_nullish_strings_coerce_to_none(self):
         for sentinel in ("None", "N/A", "null", "-", "", "TBD"):
@@ -101,9 +97,8 @@ class TestNullishFloatCoercion:
         assert d.price_target is None
 
     def test_percentage_answer_to_a_price_field_becomes_none(self):
-        # The Trader is asked for concrete levels and may answer a price field
-        # with a distance ("15%"), which failed the whole proposal (#1288).
-        # A percentage cannot be salvaged: 15% must not become a $15 stop.
+        # Trader 被要求输出具体价格，却可能在价格字段填写 "15%"；
+        # 百分比不是绝对价格，不能将 15% 当作 15 美元止损价（#1288）。
         for pct in ("15%", " 7.5% ", "-10%"):
             p = TraderProposal(
                 action=TraderAction.BUY,
@@ -125,8 +120,8 @@ class TestNullishFloatCoercion:
         assert p.stop_loss == 1180.0
 
     def test_one_bad_field_no_longer_fails_the_whole_proposal(self):
-        # Previously a single '15%' raised, forcing a free-text retry that lost
-        # the action and reasoning; now the rest of the proposal survives.
+        # 此前单个 "15%" 就会导致结构化校验失败并重试普通文本，
+        # 丢失其他有效动作及理由；现在只清空非法价格字段。
         p = TraderProposal(
             action=TraderAction.SELL,
             reasoning="downgrade on margin compression",
@@ -176,9 +171,8 @@ def _make_trader_state():
 
 
 def _structured_trader_llm(captured: dict, proposal: TraderProposal | None = None):
-    """Build a MagicMock LLM whose with_structured_output binding captures the
-    prompt and returns a real TraderProposal so render_trader_proposal works.
-    """
+    """构造 MagicMock LLM，捕获 with_structured_output 的 Prompt，
+    并返回真正的 TraderProposal 以测试 Markdown 渲染。"""
     if proposal is None:
         proposal = TraderProposal(
             action=TraderAction.BUY,
@@ -195,8 +189,8 @@ def _structured_trader_llm(captured: dict, proposal: TraderProposal | None = Non
 
 @pytest.mark.unit
 def test_invoke_structured_falls_back_when_result_is_none():
-    # A thinking model can answer in plain text, leaving the parser with None.
-    # That must fall back to free text, not crash on render(None) (#1051).
+    # 推理模型可能直接输出文本而不调用结构化工具；
+    # 返回 None 时必须回退文本路径，不能直接 render(None)（#1051）。
     from tradingagents.agents.structured import invoke_structured_or_freetext
 
     structured = MagicMock()
@@ -229,7 +223,7 @@ class TestTraderAgent:
         assert "**Action**: Buy" in plan
         assert "**Entry Price**: 189.5" in plan
         assert "FINAL TRANSACTION PROPOSAL: **BUY**" in plan
-        # The same rendered markdown is also added to messages for downstream agents.
+        # 渲染后的 Markdown 也加入消息列表供下游 Agent 使用。
         assert plan in result["messages"][0].content
 
     def test_prompt_includes_investment_plan(self):
@@ -237,13 +231,13 @@ class TestTraderAgent:
         llm = _structured_trader_llm(captured)
         trader = create_trader(llm)
         trader(_make_trader_state())
-        # The investment plan is in the user message of the captured prompt.
+        # 捕获的 Prompt 用户消息应包含投资计划。
         prompt = captured["prompt"]
         assert any("Proposed Investment Plan" in m["content"] for m in prompt)
 
     def test_prompt_includes_market_report_for_price_levels(self):
-        # #1167: the Trader must see the technical market report so entry/stop
-        # levels are grounded in real price structure, not just the digested plan.
+        # #1167：Trader 应接收市场技术分析报告，使入场、止损价基于真实价格结构，
+        # 而非仅依据已经汇总的计划。
         captured = {}
         trader = create_trader(_structured_trader_llm(captured))
         trader(_make_trader_state())
@@ -255,8 +249,8 @@ class TestTraderAgent:
         assert "Ground concrete price levels" in system
 
     def test_empty_market_report_omits_the_section_and_grounding(self):
-        # #1167: when the market analyst wasn't selected the report is empty, so
-        # don't tell the Trader to ground levels in a report it doesn't have.
+        # #1167：未选择市场分析师时报告为空，
+        # 不能要求 Trader 依据不存在的报告生成价格水平。
         captured = {}
         state = _make_trader_state()
         state["market_report"] = ""
@@ -331,7 +325,7 @@ class TestResearchManagerAgent:
         assert "**Strategic Actions**: Build position" in ip
 
     def test_prompt_uses_5_tier_rating_scale(self):
-        """The RM prompt must list all five tiers so the schema enum matches user expectations."""
+        """Research Manager 的 Prompt 必须列出全部五级评级，与 Schema 枚举保持一致。"""
         captured = {}
         llm = _structured_rm_llm(captured)
         rm = create_research_manager(llm)
@@ -413,8 +407,8 @@ def _make_sentiment_state():
 
 
 def _structured_sentiment_llm(captured: dict, report: SentimentReport | None = None):
-    """MagicMock LLM whose structured binding captures the prompt and returns
-    a real SentimentReport so render_sentiment_report works."""
+    """模拟结构化 LLM，记录 Prompt 并返回真实 SentimentReport，
+    以测试情绪报告渲染。"""
     if report is None:
         report = SentimentReport(
             overall_band=SentimentBand.BULLISH, overall_score=7.5,
@@ -434,13 +428,9 @@ def _structured_sentiment_llm(captured: dict, report: SentimentReport | None = N
 class TestSentimentAnalystAgent:
     @pytest.fixture(autouse=True)
     def _stub_prefetched_sources(self, monkeypatch):
-        """Stub the sources the analyst pre-fetches before prompting.
-
-        create_sentiment_analyst fetches news, StockTwits and Reddit itself, so
-        without this these tests hit the live network. A real Reddit 429 then
-        backs the fetcher off for a minute per subreddit, which is what turned
-        this file into a multi-minute hang.
-        """
+        """模拟分析师在生成 Prompt 之前主动拉取的新闻、StockTwits、Reddit 数据。
+        不模拟会访问真实网络；Reddit 429 还可能触发长时间退避，
+        让测试运行时间异常增长。"""
         from tradingagents.agents.analysts import sentiment_analyst as sentiment
 
         monkeypatch.setattr(sentiment, "fetch_stocktwits_messages", lambda *a, **k: "st")
@@ -496,9 +486,8 @@ class TestSentimentAnalystAgent:
     pytest.param(lambda: inspect.getsource(create_portfolio_manager), id="portfolio_manager prompt"),
 ])
 def test_conflict_alone_is_not_a_hold_trigger(source):
-    # The debate always contains conflicting arguments, so a Hold condition that
-    # conflict satisfies fires on every run and swallows directional calls
-    # (#1321). All four decision sites must state the same rule.
+    # 多空辩论总会包含相反论点；若仅因存在冲突就选择 Hold，
+    # 则每次都可能掩盖真实方向（#1321），四个决策入口应保持相同规则。
     text = " ".join(source().split())
     assert "conflict alone is not a reason to Hold" in text or \
         "Conflicting arguments alone are not a reason to Hold" in text
@@ -508,9 +497,8 @@ def test_conflict_alone_is_not_a_hold_trigger(source):
 @pytest.mark.unit
 @pytest.mark.parametrize("written", ["150-160", "150 to 160", "around 150", "150/160", "~150"])
 def test_a_price_written_as_a_range_drops_only_that_field(written):
-    """Anything that is not a single number becomes None. Letting it through
-    fails the whole decision's validation, and the run falls back to free text,
-    losing every other field the model got right."""
+    """非单一数值一律转换为 None；否则可能导致整份决策验证失败，
+    退化成自由文本，并丢失其他正确的字段。"""
     from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating
 
     decision = PortfolioDecision(rating=PortfolioRating.BUY, executive_summary="s",
@@ -529,7 +517,7 @@ def test_a_price_that_is_a_number_survives():
 
 @pytest.mark.unit
 def test_a_field_the_model_did_not_give_says_so():
-    """An omitted line and a line never asked for read the same to an analyst."""
+    """对于分析师，省略行与从未要求该行看起来完全一样。"""
     from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating, render_pm_decision
 
     rendered = render_pm_decision(PortfolioDecision(
