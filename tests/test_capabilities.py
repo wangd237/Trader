@@ -122,7 +122,7 @@ class TestDefault:
         assert caps.supports_tool_choice is True
 
     def test_exact_match_precedes_pattern(self):
-        """deepseek-chat 不能匹配版本号正则 v\d。"""
+        """deepseek-chat 不能匹配版本号正则 v\\d。"""
         caps = get_capabilities("deepseek-chat")
         assert caps.supports_tool_choice is True
 

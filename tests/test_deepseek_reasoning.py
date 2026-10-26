@@ -153,7 +153,7 @@ class TestStructuredOutputCapabilityDispatch:
             "tool_choice" not in _bound_kwargs(bound)
 
     def test_future_v_variant_via_regex(self):
-        """向前兼容：未知 deepseek-v\d-* 模型继承 V4 兼容规则。"""
+        """向前兼容：未知 deepseek-v\\d-* 模型继承 V4 兼容规则。"""
         bound = self._client("deepseek-v5-hypothetical").with_structured_output(self._Sample)
         assert _bound_kwargs(bound).get("tool_choice") is None or \
             "tool_choice" not in _bound_kwargs(bound)
