@@ -12,27 +12,26 @@ _PASSTHROUGH_KWARGS = (
 
 
 class NormalizedAzureChatOpenAI(AzureChatOpenAI):
-    """AzureChatOpenAI with normalized content output."""
+    """具有标准化文本输出的 AzureChatOpenAI。"""
 
     def invoke(self, input, config=None, **kwargs):
         return normalize_content(super().invoke(input, config, **kwargs))
 
 
 class AzureOpenAIClient(BaseLLMClient):
-    """Client for Azure OpenAI deployments.
+    """Azure OpenAI 已部署模型的客户端。
 
-    Requires environment variables:
-        AZURE_OPENAI_API_KEY: API key
-        AZURE_OPENAI_ENDPOINT: Endpoint URL (e.g. https://<resource>.openai.azure.com/)
-        AZURE_OPENAI_DEPLOYMENT_NAME: Deployment name
-        OPENAI_API_VERSION: API version (e.g. 2025-03-01-preview)
-    """
+    需要设置环境变量：
+        AZURE_OPENAI_API_KEY：API 密钥。
+        AZURE_OPENAI_ENDPOINT：端点 URL，例如 Azure 资源地址。
+        AZURE_OPENAI_DEPLOYMENT_NAME：部署名称。
+        OPENAI_API_VERSION：API 版本，例如 2025-03-01-preview。"""
 
     def __init__(self, model: str, base_url: str | None = None, **kwargs):
         super().__init__(model, base_url, **kwargs)
 
     def get_llm(self) -> Any:
-        """Return configured AzureChatOpenAI instance."""
+        """返回已配置的 AzureChatOpenAI 实例。"""
         self.warn_if_unknown_model()
 
         llm_kwargs = {
@@ -47,5 +46,5 @@ class AzureOpenAIClient(BaseLLMClient):
         return NormalizedAzureChatOpenAI(**llm_kwargs)
 
     def validate_model(self) -> bool:
-        """Azure accepts any deployed model name."""
+        """Azure 接受任意已部署的模型名称。"""
         return True
