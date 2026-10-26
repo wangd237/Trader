@@ -1,4 +1,4 @@
-"""One turn of a tool-using analyst, and its last turn once its tool rounds are spent."""
+"""执行分析师的一轮工具交互；工具轮数耗尽后执行收尾轮次。"""
 
 import json
 
@@ -11,15 +11,14 @@ WRAP_UP = (
 
 
 def take_turn(prompt, llm, tools, messages):
-    """The analyst's reply and its report, which stays empty while it calls tools.
+    """生成分析师的回复与报告；工具调用期间报告保持为空。
 
-    Told to wrap up, it answers without tools: a model offered tools may call one
-    whatever it is told. Its earlier calls and their results reach it as text,
-    since a provider may refuse a history holding tool calls when none are bound.
-    """
+    收尾时不再向模型绑定工具，因为模型即使被要求结束，也可能继续调用。
+    历史工具调用与结果会转为文本传入，避免部分提供商拒绝接受
+    包含工具调用记录、却未绑定工具的对话历史。"""
     if messages and isinstance(messages[-1], HumanMessage) and messages[-1].content == WRAP_UP:
-        # The prompt lists the tools it offers; a model told of tools it cannot
-        # call may still try, and some providers then answer with nothing.
+        # Prompt 只能列出实际提供的工具；如果提到不可调用的工具，
+        # 模型仍可能尝试调用，部分提供商会因此返回空响应。
         prompt = prompt.partial(tool_names="none; your tool rounds are spent")
         result = (prompt | llm).invoke(_as_text(messages))
         return result, result.content
@@ -28,7 +27,7 @@ def take_turn(prompt, llm, tools, messages):
 
 
 def _as_text(messages):
-    """The history with its tool calls and tool results written out as plain messages."""
+    """将历史工具调用及其返回结果整理为普通文本消息。"""
     written = []
     for message in messages:
         if isinstance(message, AIMessage) and message.tool_calls:
