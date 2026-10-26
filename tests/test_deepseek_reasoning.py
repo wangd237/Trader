@@ -18,8 +18,8 @@ from tradingagents.llm_clients.openai_client import (
 )
 
 # ---------------------------------------------------------------------------
-# _input_to_messages — the helper that handles list / ChatPromptValue / other
-# (Gemini bot review note: non-list inputs must also work)
+# _input_to_messages：兼容列表、ChatPromptValue 等输入
+# （代码审查提醒：非列表输入也必须兼容）
 # ---------------------------------------------------------------------------
 
 
@@ -41,7 +41,7 @@ class TestInputToMessages:
 
 
 # ---------------------------------------------------------------------------
-# Reasoning content propagation across turns
+# 跨轮次传递推理内容
 # ---------------------------------------------------------------------------
 
 
@@ -107,7 +107,7 @@ class TestDeepSeekReasoningContent:
 
 
 # ---------------------------------------------------------------------------
-# Capability-driven structured output: tool_choice suppressed for V4 + reasoner
+# 能力表驱动的结构化输出：V4 与 reasoner 禁用 tool_choice
 # ---------------------------------------------------------------------------
 
 
@@ -170,7 +170,7 @@ class TestStructuredOutputCapabilityDispatch:
 
 
 # ---------------------------------------------------------------------------
-# Live API: structured output round-trips against the real DeepSeek backend
+# 实时 API：验证 DeepSeek 后端的结构化输出往返
 # ---------------------------------------------------------------------------
 
 
@@ -211,7 +211,7 @@ class TestDeepSeekLiveStructuredOutput:
 
 
 # ---------------------------------------------------------------------------
-# Base class isolation: NormalizedChatOpenAI does NOT have DeepSeek behaviour
+# 基类隔离：NormalizedChatOpenAI 不含 DeepSeek 特殊行为
 # ---------------------------------------------------------------------------
 
 

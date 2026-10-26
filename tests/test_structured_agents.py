@@ -28,7 +28,7 @@ from tradingagents.agents.schemas import (
 from tradingagents.agents.trader.trader import create_trader
 
 # ---------------------------------------------------------------------------
-# Render functions
+# 渲染函数
 # ---------------------------------------------------------------------------
 
 
@@ -158,7 +158,7 @@ class TestRenderResearchPlan:
 
 
 # ---------------------------------------------------------------------------
-# Trader agent: structured happy path + fallback
+# Trader Agent：结构化成功路径和降级
 # ---------------------------------------------------------------------------
 
 
@@ -274,7 +274,7 @@ class TestTraderAgent:
 
 
 # ---------------------------------------------------------------------------
-# Research Manager agent: structured happy path + fallback
+# Research Manager：结构化成功路径和降级
 # ---------------------------------------------------------------------------
 
 
@@ -345,7 +345,7 @@ class TestResearchManagerAgent:
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Analyst: schema, render, structured happy path + fallback
+# Sentiment Analyst：Schema、渲染、成功路径和降级
 # ---------------------------------------------------------------------------
 
 

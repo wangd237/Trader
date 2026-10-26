@@ -36,12 +36,12 @@ def test_missing_console_prints_actionable_message(monkeypatch):
     result = CliRunner().invoke(m.app, [])
     assert result.exit_code == 1
     assert "no Windows console available" in result.output
-    # The raw prompt_toolkit traceback must not reach the user.
+    # 原始 prompt_toolkit 异常堆栈不能直接展示给用户。
     assert "Traceback" not in result.output
 
 
 def test_unrelated_errors_still_propagate(monkeypatch):
-    # The handler must stay narrow: only the console error is translated.
+    # 异常处理应保持精准，只转换特定的控制台错误。
     monkeypatch.setattr(m, "_NO_CONSOLE_ERRORS", (RuntimeError,))
 
     def _boom(*a, **k):

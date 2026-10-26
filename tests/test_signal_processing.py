@@ -8,7 +8,7 @@ import pytest
 from tradingagents.agents.rating import RATING_REVIEW, RATINGS_5_TIER, extract_rating, parse_rating
 
 # ---------------------------------------------------------------------------
-# Heuristic parser
+# 启发式解析器
 # ---------------------------------------------------------------------------
 
 

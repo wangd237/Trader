@@ -121,9 +121,9 @@ def test_reddit_live_window_keeps_in_range(monkeypatch):
 
 
 # --- 覆盖范围与真正无消息的区别 --------------------------------------------------------
-# The public feeds only serve recent items. When everything fetched postdates the
-# window the source cannot answer for that date; reporting "no posts" there is a
-# claim about the market that was never observed.
+# 公开数据流只返回近期帖子；若获取结果全部晚于分析窗口，
+# 就无法判断该日期是否有讨论。此时宣称“没有帖子”，
+# 等于对并未观察到的市场情况作出无依据判断。
 
 @pytest.mark.unit
 def test_stocktwits_covered_but_empty_window_is_a_real_absence(monkeypatch):

@@ -120,7 +120,7 @@ def test_fundamentals_no_curr_date_passes_through(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Date trim (see the rationale on the unguarded trim in alpha_vantage.common)
+# 日期裁剪（设计理由见 alpha_vantage.common 中的直接裁剪逻辑）
 # ---------------------------------------------------------------------------
 
 _DAILY_CSV = (

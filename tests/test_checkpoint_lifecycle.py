@@ -129,7 +129,7 @@ def test_cli_style_usage_saves_then_resumes():
         sig = g1._run_signature("stock")
         assert checkpoint_step(tmp, "AAPL", "2026-05-08", sig) is not None
 
-        # Run 2 (fresh graph, as a new CLI invocation): resume and finish.
+        # 第二次运行：模拟新 CLI 进程创建 Graph，恢复并完成。
         _should_crash = False
         g2 = _bare_graph(tmp)
         tid2 = g2.begin_checkpoint(*cfg_args)
@@ -141,7 +141,7 @@ def test_cli_style_usage_saves_then_resumes():
         finally:
             g2.end_checkpoint()
 
-        # Cleared on success -> a later run starts fresh.
+        # 成功后清理检查点，下一次运行应全新启动。
         assert checkpoint_step(tmp, "AAPL", "2026-05-08", sig) is None
 
 
