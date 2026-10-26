@@ -16,7 +16,7 @@ from tradingagents.dataflows.vendors.yahoo.common import (
     yf_retry,
 )
 
-# Quote currencies Yahoo gives in a minor unit, and the main unit of each.
+# Yahoo 可能以辅币单位报价；这里定义报价币种及其对应的主币种。
 _MAIN_UNIT = {"GBp": "GBP", "GBX": "GBP", "ZAc": "ZAR", "ILA": "ILS"}
 
 
@@ -24,16 +24,15 @@ def get_fundamentals(
     ticker: Annotated[str, "ticker symbol of the company"],
     as_of_date: Annotated[str, "analysis date in YYYY-MM-DD format"] = None
 ):
-    """Get company fundamentals overview from yfinance.
+    """通过 yfinance 获取公司基本面概况。
 
-    ``Ticker.info`` is a present-day snapshot with no historical vintage, so a
-    past ``as_of_date`` withholds it through the shared point-in-time guard
-    (``date_window.withhold_live_profile``, #1300).
-    """
+    ``Ticker.info`` 只提供当前快照，不具备历史版本信息；
+    历史 ``as_of_date`` 会由 ``date_window.withhold_live_profile``
+    统一阻止返回，防止回测泄漏未来信息（#1300）。"""
     canonical = normalize_symbol(ticker)
 
-    # Guard before the request: the response would only be discarded, and the
-    # answer does not depend on it.
+    # 在发出请求前就执行时点检查；不符合条件的响应最终也会被丢弃，
+    # 无需为注定不能使用的数据支付请求成本。
     withheld = withhold_live_profile(as_of_date, canonical)
     if withheld:
         return withheld
@@ -42,16 +41,14 @@ def get_fundamentals(
     if not info:
         raise_for_empty(ticker, canonical, "fundamentals")
 
-    # Yahoo gives these two in percent (dividendYield 0.41 is 0.41%; debtToEquity
-    # 78.4 is 78.4%, a ratio of 0.78) but the margins and returns as fractions,
-    # so each carries its unit.
+    # Yahoo 对 dividendYield 和 debtToEquity 使用百分数
+    # （例如 0.41 表示 0.41%，78.4 表示 78.4%）；
+    # 而利润率与收益率使用小数比例，因此必须明确每个字段的单位。
     dividend_yield, debt_to_equity = info.get("dividendYield"), info.get("debtToEquity")
-    # Money figures come in three currencies (#1456): price levels in the quote
-    # currency, which can be a minor unit (London in pence, GBp); market cap and
-    # per-share figures in that currency's main unit (GBP), as Yahoo's own P/E
-    # and P/B are computed against them; income figures in the currency the
-    # company reports in (an ADR quotes in USD, reports in TWD), or bare when
-    # Yahoo does not say which.
+    # 金额可能涉及三种币种（#1456）：价格使用报价币种，可能是辅币
+    # （如伦敦市场便士 GBp）；市值和每股指标使用对应主币种（GBP），
+    # 与 Yahoo 计算 P/E、P/B 的口径一致；损益项目使用公司财报币种
+    # （例如 ADR 以 USD 报价，但财报用 TWD），缺少币种时不擅自推断。
     quote = info.get("currency")
     main = _MAIN_UNIT.get(quote, quote)
     reported = info.get("financialCurrency")
@@ -94,10 +91,10 @@ def get_fundamentals(
 
     lines = [f"{label}: {v}" for label, v in fields if v is not None]
 
-    # yfinance returns a stub dict (e.g. {"trailingPegRatio": None}) for
-    # unknown symbols, so `info` is truthy but every field is empty. Treat
-    # "no usable fields" as no data rather than emitting a bare header the
-    # agent might fabricate around.
+    # yfinance 对未知标的有时返回带空字段的占位字典，
+    # 例如 {"trailingPegRatio": None}。虽然 info 在布尔判断上为真，
+    # 实际却没有任何可用字段；此时应该报告无数据，
+    # 而不是让 Agent 对空标题编造解释。
     if not lines:
         raise_for_empty(ticker, canonical, "fundamental fields")
 
@@ -105,7 +102,7 @@ def get_fundamentals(
 
 
 def _statement(ticker, freq, as_of_date, title, quarterly_attr, annual_attr) -> str:
-    """One financial statement as CSV, for a run dated today."""
+    """获取当日运行对应的一份财务报表，并格式化为 CSV。"""
     canonical = normalize_symbol(ticker)
     withheld = withhold_undated_statements(as_of_date, canonical, title)
     if withheld:
@@ -123,7 +120,7 @@ def get_balance_sheet(
     freq: Annotated[str, "frequency of data: 'annual' or 'quarterly'"] = "quarterly",
     as_of_date: Annotated[str, "current date in YYYY-MM-DD format"] = None
 ):
-    """Get balance sheet data from yfinance."""
+    """通过 yfinance 获取资产负债表。"""
     return _statement(ticker, freq, as_of_date, "Balance Sheet", "quarterly_balance_sheet", "balance_sheet")
 
 
@@ -132,7 +129,7 @@ def get_cashflow(
     freq: Annotated[str, "frequency of data: 'annual' or 'quarterly'"] = "quarterly",
     as_of_date: Annotated[str, "current date in YYYY-MM-DD format"] = None
 ):
-    """Get cash flow data from yfinance."""
+    """通过 yfinance 获取现金流量表。"""
     return _statement(ticker, freq, as_of_date, "Cash Flow", "quarterly_cashflow", "cashflow")
 
 
@@ -141,7 +138,7 @@ def get_income_statement(
     freq: Annotated[str, "frequency of data: 'annual' or 'quarterly'"] = "quarterly",
     as_of_date: Annotated[str, "current date in YYYY-MM-DD format"] = None
 ):
-    """Get income statement data from yfinance."""
+    """通过 yfinance 获取利润表。"""
     return _statement(ticker, freq, as_of_date, "Income Statement", "quarterly_income_stmt", "income_stmt")
 
 
@@ -149,15 +146,15 @@ def get_insider_transactions(
     ticker: Annotated[str, "ticker symbol of the company"],
     as_of_date: Annotated[str | None, "analysis date, yyyy-mm-dd"] = None,
 ):
-    """Get insider transactions data from yfinance, for a run dated today."""
+    """通过 yfinance 获取内部人交易数据，仅供当日运行使用。"""
     canonical = normalize_symbol(ticker)
     withheld = withhold_undisclosed_trades(as_of_date, canonical)
     if withheld:
         return withheld
     data = yf_retry(lambda: yf.Ticker(canonical).insider_transactions)
 
-    # Empty is normal here (many valid symbols have no insider filings),
-    # so report it plainly rather than treating the symbol as invalid.
+    # 许多合法股票没有内部人交易披露，返回空是正常情况；
+    # 应明确说明，而不是把股票代码判为无效。
     if data is None or data.empty:
         if not vendor_reachable(YAHOO_HOST):
             raise VendorUnavailableError("Yahoo Finance is unreachable; insider filings were not retrieved")
@@ -167,5 +164,5 @@ def get_insider_transactions(
 
 
 def get_company_profile(ticker: str) -> dict:
-    """Yahoo's current profile for ``ticker``: name, sector, industry and the like."""
+    """获取 Yahoo 当前的 ``ticker`` 公司概况，包括名称、板块和行业等。"""
     return yf_retry(lambda: yf.Ticker(normalize_symbol(ticker)).info) or {}
