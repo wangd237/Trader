@@ -1,10 +1,8 @@
-"""Historical social sentiment must not leak current data into a backtest (#1220).
+"""历史情绪分析不能泄漏今天的数据到回测（#1220）。
 
-StockTwits and Reddit fetchers pull only recent items, so for a historical run
-they must be trimmed to the analysis window (and yield a clear placeholder when
-nothing qualifies) rather than showing today's chatter as if it were from the
-as-of date. All three sources share dataflows.date_window.in_window.
-"""
+StockTwits、Reddit 仅提供近期帖子，历史运行必须按日期窗口过滤，
+未覆盖该窗口时应明确标记不可用，不能把今天的评论当作历史情绪。
+各来源共用 date_window.in_window。"""
 from __future__ import annotations
 
 import json
@@ -17,7 +15,7 @@ from tradingagents.dataflows.vendors import reddit, stocktwits
 
 
 class _JsonResp:
-    """Minimal urlopen() context-manager stub returning a JSON body."""
+    """模拟返回 JSON 正文的最小 urlopen() 上下文管理器。"""
 
     def __init__(self, payload):
         self._body = json.dumps(payload).encode()
@@ -32,7 +30,7 @@ class _JsonResp:
         return self._body
 
 
-# --- shared window helper ---------------------------------------------------
+# --- 共用时间窗口辅助函数 ---------------------------------------------------
 
 @pytest.mark.unit
 def test_in_window_bounds_and_exclusive_upper():
@@ -40,9 +38,9 @@ def test_in_window_bounds_and_exclusive_upper():
     end = datetime(2026, 5, 9)
     assert in_window(datetime(2026, 5, 5, tzinfo=UTC), start, end) is True
     assert in_window(datetime(2026, 5, 9, 23, 59, tzinfo=UTC), start, end) is True
-    # exactly midnight after end -> excluded (no leak)
+    # 结束日次日零点被排除，避免未来信息泄漏。
     assert in_window(datetime(2026, 5, 10, 0, 0, tzinfo=UTC), start, end) is False
-    # offset-aware converted, not truncated: 05-10T01:00+05:00 == 05-09T20:00Z
+    # 应转换带时区时间，而不是截掉偏移：05-10T01:00+05:00 等于 05-09T20:00Z。
     assert in_window(datetime.fromisoformat("2026-05-10T01:00:00+05:00"), start, end) is True
 
 
@@ -54,7 +52,7 @@ def test_in_window_undated_excluded_in_backtest_kept_live():
     assert in_window(None, now, now) is True                          # live
 
 
-# --- StockTwits -------------------------------------------------------------
+# --- StockTwits 数据源 -------------------------------------------------------------
 
 def _msg(created_iso, sentiment=None):
     return {
@@ -67,13 +65,13 @@ def _msg(created_iso, sentiment=None):
 
 @pytest.mark.unit
 def test_stocktwits_historical_window_excludes_recent(monkeypatch):
-    # All messages are "today"; a run as-of a past week must show none of them.
+    # 全部消息来自今天，不得展示给历史日期运行。
     recent = [_msg("2026-08-30T12:00:00Z", "Bullish"), _msg("2026-08-29T09:00:00Z")]
     monkeypatch.setattr(stocktwits, "urlopen", lambda *a, **k: _JsonResp({"messages": recent}))
     out = stocktwits.fetch_stocktwits_messages("AAPL", start_date="2026-05-01", end_date="2026-05-08")
     assert "2026-05-01..2026-05-08" in out
     assert "Bullish: 1" not in out  # the recent bullish message did not leak
-    # Coverage starts after the window: unavailable, never a claim of silence.
+    # 数据覆盖起点晚于窗口，应报告不可用而非当时没有讨论。
     assert "unavailable" in out and "not an absence" in out
 
 
@@ -93,7 +91,7 @@ def test_stocktwits_no_window_is_unfiltered(monkeypatch):
     assert "Total: 1" in out
 
 
-# --- Reddit -----------------------------------------------------------------
+# --- Reddit 数据源 -----------------------------------------------------------------
 
 def _epoch(date_str):
     return int(datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=UTC).timestamp())
@@ -122,15 +120,14 @@ def test_reddit_live_window_keeps_in_range(monkeypatch):
     assert "INRANGE" in out
 
 
-# --- coverage vs absence --------------------------------------------------------
+# --- 覆盖范围与真正无消息的区别 --------------------------------------------------------
 # The public feeds only serve recent items. When everything fetched postdates the
 # window the source cannot answer for that date; reporting "no posts" there is a
 # claim about the market that was never observed.
 
 @pytest.mark.unit
 def test_stocktwits_covered_but_empty_window_is_a_real_absence(monkeypatch):
-    # The stream reaches back before the window (an older message exists) yet
-    # nothing falls inside it: that is genuine silence.
+    # 数据流覆盖到窗口之前但窗口内为空，才可能认定真实没有帖子。
     msgs = [_msg("2026-08-30T12:00:00Z"), _msg("2026-04-20T12:00:00Z")]
     monkeypatch.setattr(stocktwits, "urlopen", lambda *a, **k: _JsonResp({"messages": msgs}))
     out = stocktwits.fetch_stocktwits_messages("AAPL", start_date="2026-05-01", end_date="2026-05-08")
@@ -153,9 +150,7 @@ def test_reddit_covered_but_empty_window_is_a_real_absence(monkeypatch):
 
 @pytest.mark.unit
 def test_reddit_empty_feed_for_an_old_window_is_unavailable(monkeypatch):
-    # Search is limited to the last week, so an empty response says nothing
-    # about a window from months ago: there are no timestamps to go on, and the
-    # lookback bound alone must decide.
+    # 搜索只覆盖最近一周，空结果不能证明数月前没有帖子。
     monkeypatch.setattr(reddit, "_fetch_subreddit_rss", lambda *a, **k: [])
     out = reddit.fetch_reddit_posts(
         "AAPL", subreddits=("stocks",),
@@ -181,8 +176,8 @@ def test_stocktwits_empty_stream_for_a_past_window_is_unavailable(monkeypatch):
 
 @pytest.mark.unit
 def test_reddit_window_straddling_the_lookback_is_unavailable(monkeypatch):
-    # Ten days ago through five days ago: the week-long search never reaches the
-    # first three days, so an empty result cannot stand for the whole window.
+    # 请求窗口横跨十天前至五天前，一周搜索无法覆盖前三天；
+    # 空响应不足以证明整个窗口没有帖子。
     from datetime import timedelta
     today = datetime.now(UTC).date()
     monkeypatch.setattr(reddit, "_fetch_subreddit_rss", lambda *a, **k: [])
@@ -195,8 +190,8 @@ def test_reddit_window_straddling_the_lookback_is_unavailable(monkeypatch):
 
 @pytest.mark.unit
 def test_reddit_standard_week_window_empty_is_a_real_absence(monkeypatch):
-    # The graph's window is [trade_date - 7, trade_date]; the week-long search
-    # covers it, so an empty result is genuine silence.
+    # Graph 窗口为 [trade_date - 7, trade_date]；
+    # 当一周搜索覆盖全部窗口时，空响应才可表示没有帖子。
     from datetime import timedelta
     today = datetime.now(UTC).date()
     monkeypatch.setattr(reddit, "_fetch_subreddit_rss", lambda *a, **k: [])
@@ -209,8 +204,8 @@ def test_reddit_standard_week_window_empty_is_a_real_absence(monkeypatch):
 
 @pytest.mark.unit
 def test_reddit_full_page_does_not_vouch_for_older_days(monkeypatch):
-    # 100 posts from today say nothing about five days ago: the page may have
-    # cut older matches off, so the window stays unavailable.
+    # 今天的 100 条帖子不能说明五天前是否有讨论；
+    # 热门数据可能截断旧帖子，窗口仍应标记不可用。
     from datetime import timedelta
     today = datetime.now(UTC).date()
     ts = _epoch(str(today))
