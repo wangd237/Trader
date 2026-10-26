@@ -1,12 +1,4 @@
-"""The checkpoint lifecycle is reusable so --checkpoint works on the CLI path (#1249).
-
-Checkpoint setup previously lived only inside ``propagate``; the CLI streamed the
-checkpointer-less graph, so ``--checkpoint`` neither saved nor resumed. The
-lifecycle is now ``begin_checkpoint`` / ``end_checkpoint`` /
-``clear_checkpoint_on_success`` on TradingAgentsGraph, used by both paths. These
-tests drive that lifecycle exactly as the CLI does (begin -> stream self.graph ->
-clear/end) and prove state is saved and resumed.
-"""
+"""检查点生命周期应可复用，使 CLI 的 --checkpoint 真正生效（#1249）。"""
 from __future__ import annotations
 
 import tempfile
@@ -88,7 +80,7 @@ def test_checkpoint_input_is_none_only_when_resuming():
     with tempfile.TemporaryDirectory() as tmp:
         init = {"count": 0}
         args = ("AAPL", "2026-05-08", "stock")
-        # Fresh run: no checkpoint yet -> stream the initial state, then crash.
+        # 首次运行没有检查点；传入初始状态并模拟崩溃。
         g1 = _bare_graph(tmp)
         tid = g1.begin_checkpoint(*args)
         try:
@@ -102,8 +94,8 @@ def test_checkpoint_input_is_none_only_when_resuming():
             g1.end_checkpoint()
         assert g1.checkpoint_input(init) is init  # reset after teardown
 
-        # A later run finds the checkpoint -> resume by feeding None, not the
-        # initial state (re-passing it would duplicate messages, #1249).
+        # 后续运行找到检查点后传入 None 恢复，不能重新传初始状态；
+        # 否则消息将被重复追加（#1249）。
         _should_crash = False
         g2 = _bare_graph(tmp)
         g2.begin_checkpoint(*args)
@@ -120,7 +112,7 @@ def test_cli_style_usage_saves_then_resumes():
     with tempfile.TemporaryDirectory() as tmp:
         cfg_args = ("AAPL", "2026-05-08", "stock")
 
-        # Run 1 (the CLI path): begin -> stream self.graph -> crash at 'trader'.
+        # CLI 首次运行：begin → stream self.graph → 在 Trader 处崩溃。
         _should_crash = True
         g1 = _bare_graph(tmp)
         tid = g1.begin_checkpoint(*cfg_args)
@@ -132,7 +124,7 @@ def test_cli_style_usage_saves_then_resumes():
         finally:
             g1.end_checkpoint()
 
-        # A checkpoint was saved for this run signature (so --checkpoint works).
+        # 应根据当前运行签名保存检查点，证明 --checkpoint 有效。
 
         sig = g1._run_signature("stock")
         assert checkpoint_step(tmp, "AAPL", "2026-05-08", sig) is not None
@@ -155,8 +147,8 @@ def test_cli_style_usage_saves_then_resumes():
 
 @pytest.mark.unit
 def test_clearing_removes_the_database_sidecars(tmp_path):
-    """SQLite writes -wal and -shm next to the database; leaving them behind
-    means a cleared checkpoint still has committed state on disk."""
+    """SQLite 会在数据库旁写入 -wal 与 -shm 文件；
+    清理检查点时不能留下这些附属文件。"""
     from tradingagents.graph.checkpointer import clear_all_checkpoints
 
     cp = tmp_path / "checkpoints"

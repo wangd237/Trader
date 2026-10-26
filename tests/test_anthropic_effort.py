@@ -1,10 +1,4 @@
-"""Tests for Anthropic effort-parameter gating (#831).
-
-Haiku (any version) and Sonnet 4.5 reject the ``effort`` parameter with a
-400. Only Opus 4.5+ and Sonnet 4.6+ accept it. The gate uses a per-family
-minimum version so future ``claude-{opus,sonnet}-X-Y`` releases inherit
-support automatically.
-"""
+"""测试 Anthropic effort 参数是否按模型能力正确启用（#831）。"""
 
 import pytest
 
@@ -26,7 +20,8 @@ class TestEffortGate:
         "model",
         [
             "claude-haiku-4-5", "claude-haiku-5-0", "claude-haiku-4-7-preview",
-            # Sonnet 4.5 (and earlier) 400 on effort — only Sonnet 4.6+ supports it.
+            # Sonnet 4.5 及更早版本不支持 effort，会返回 HTTP 400；
+            # Sonnet 4.6 及以上版本才支持。
             "claude-sonnet-4-5", "claude-sonnet-4-0",
         ],
     )
@@ -52,14 +47,14 @@ class TestEffortGate:
         ["claude-opus-5-0", "claude-opus-4-8", "claude-sonnet-5-0"],
     )
     def test_future_opus_sonnet_inherit_effort_via_pattern(self, monkeypatch, model):
-        """Forward-compat: new Opus/Sonnet versions don't need a code change."""
+        """验证对未来 Opus、Sonnet 版本的兼容性，无须修改代码。"""
         captured = _capture_kwargs(monkeypatch)
         mod.AnthropicClient(model=model, effort="low", api_key="x").get_llm()
         assert captured["kwargs"]["effort"] == "low"
 
     @pytest.mark.parametrize(
         "model",
-        # Claude 5 family uses single-number version IDs; all are effort-capable.
+        # Claude 5 家族采用单数字版本 ID，且都支持 effort。
         ["claude-sonnet-5", "claude-fable-5", "claude-mythos-5", "claude-opus-5", "claude-opus-5-5",
          "claude-fable-5-1"],
     )
@@ -76,7 +71,7 @@ class TestEffortGate:
         assert captured["kwargs"]["effort"] == "medium"
 
     def test_unknown_anthropic_model_does_not_receive_effort(self, monkeypatch):
-        """Default is conservative — unknown models don't get effort to avoid 400s."""
+        """默认采用保守策略：未知模型不传 effort，避免 HTTP 400。"""
         captured = _capture_kwargs(monkeypatch)
         mod.AnthropicClient(
             model="claude-experimental-x", effort="medium", api_key="x"
@@ -84,7 +79,7 @@ class TestEffortGate:
         assert "effort" not in captured["kwargs"]
 
     def test_other_kwargs_still_forwarded_when_effort_skipped(self, monkeypatch):
-        """Skipping effort must not break other passthrough kwargs."""
+        """移除 effort 参数时不应影响其他透传参数。"""
         captured = _capture_kwargs(monkeypatch)
         mod.AnthropicClient(
             model="claude-haiku-4-5",

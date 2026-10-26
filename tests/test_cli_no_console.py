@@ -1,9 +1,4 @@
-"""A terminal without a console buffer must fail with one actionable line (#1138).
-
-prompt_toolkit raises NoConsoleScreenBufferError before the first prompt in
-non-interactive Windows terminals; the CLI should not surface that traceback.
-The Windows-only exception import must also stay inert on other platforms.
-"""
+"""终端缺少控制台缓冲区时应输出一行可操作的错误提示（#1138）。"""
 from __future__ import annotations
 
 import sys
@@ -14,10 +9,10 @@ import cli.main as m
 
 
 def test_no_console_error_tuple_matches_platform():
-    # Off Windows the win32 module is never imported (it asserts the platform),
-    # so the tuple is empty — which `except` accepts and never matches. On
-    # Windows it holds the real exception type, and a broken prompt_toolkit
-    # would raise at import rather than silently disabling the handler.
+    # 非 Windows 平台不能导入 win32 模块（模块会检查系统平台），
+    # 因此异常类型元组应为空；except 接受空元组且不会匹配异常。
+    # Windows 平台则使用真实异常类型，以便 prompt_toolkit 依赖故障
+    # 在导入时明确报错，而不是悄然禁用处理。
     assert isinstance(m._NO_CONSOLE_ERRORS, tuple)
     assert all(issubclass(e, BaseException) for e in m._NO_CONSOLE_ERRORS)
     if sys.platform == "win32":
@@ -30,7 +25,7 @@ def test_missing_console_prints_actionable_message(monkeypatch):
     class _NoConsole(Exception):
         pass
 
-    # Simulate the Windows failure on any platform by registering a stand-in.
+    # 通过替代类型在任意系统上模拟 Windows 的故障。
     monkeypatch.setattr(m, "_NO_CONSOLE_ERRORS", (_NoConsole,))
 
     def _boom(*a, **k):

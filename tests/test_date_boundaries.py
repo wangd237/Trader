@@ -1,9 +1,5 @@
-"""yfinance treats ``end`` as exclusive; we must request one extra day so the
-requested end_date (and the current day) is actually included.
-
-Regressions for #986 (current-day OHLCV excluded) and #987 (requested end_date
-row omitted).
-"""
+"""yfinance 的 ``end`` 不包含结束日期，因此请求时须增加一天，
+才能将用户指定的最后一天行情包含在结果中。"""
 from types import SimpleNamespace
 
 import pandas as pd
@@ -35,9 +31,9 @@ def test_get_yfin_requests_inclusive_end(monkeypatch):
     monkeypatch.setattr(yfin.yf, "Ticker", FakeTicker)
     out = yfin.get_YFin_data_online("AAPL", "2025-05-01", "2025-05-09")
 
-    # end is requested one day past end_date so 2025-05-09 is included (#987).
+    # 将请求结束日期推后一天，确保包含 2025-05-09（#987）。
     assert captured["end"] == "2025-05-10"
-    # Header still reflects the requested range, not the internal +1 day.
+    # 报告标题仍显示用户请求的范围，而不是内部追加的一天。
     assert "to 2025-05-09" in out
 
 

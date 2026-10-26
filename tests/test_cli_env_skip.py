@@ -1,9 +1,4 @@
-"""Tests for env-driven CLI behavior (#897, #873).
-
-The config-layer override (TRADINGAGENTS_* -> DEFAULT_CONFIG) is covered by
-test_env_overrides.py. These tests cover the CLI layer: an env-configured
-provider/model/language must skip its interactive prompt and use the value.
-"""
+"""测试环境变量驱动的 CLI 行为（#897、#873）。"""
 
 import os
 import unittest
@@ -66,15 +61,15 @@ class TestCliSkipsPromptsFromEnv(unittest.TestCase):
              mock.patch.object(cli_selections, "select_deep_thinking_agent") as prompt_deep:
             sel = cli_selections.get_user_selections()
 
-        # None of the LLM selection prompts should have been shown.
+        # 不应显示任何 LLM 选择问题。
         prompt_provider.assert_not_called()
         prompt_lang.assert_not_called()
         prompt_quick.assert_not_called()
         prompt_deep.assert_not_called()
-        # API key is still verified for the env-configured provider.
+        # 即使提供商由环境变量指定，也必须校验 API Key。
         ensure_key.assert_called_once()
 
-        # The env values flow into the returned selections.
+        # 返回的选择结果应正确包含环境变量的值。
         self.assertEqual(sel["llm_provider"], "openai")
         self.assertEqual(sel["backend_url"], "https://opencode.ai/zen/go/v1")
         self.assertEqual(sel["quick_think_llm"], "deepseek-v4-pro")
@@ -108,7 +103,7 @@ class TestResearchDepthSkippedFromEnv(unittest.TestCase):
              mock.patch.object(cli_selections, "ask_openai_reasoning_effort", return_value=None):
             sel = cli_selections.get_user_selections()
 
-        # The research-depth prompt is skipped; the value comes from the env config.
+        # 跳过研究深度提问，直接使用环境变量配置。
         prompt_depth.assert_not_called()
         self.assertEqual(sel["research_depth"], 2)
 
@@ -136,7 +131,7 @@ class TestReasoningEffortSkippedFromEnv(unittest.TestCase):
              mock.patch.object(cli_selections, "ask_openai_reasoning_effort") as prompt_effort:
             sel = cli_selections.get_user_selections()
 
-        # The reasoning-effort prompt is skipped; the value comes from env config.
+        # 跳过推理力度提问，直接使用环境变量配置。
         prompt_effort.assert_not_called()
         self.assertEqual(sel["openai_reasoning_effort"], "high")
 
