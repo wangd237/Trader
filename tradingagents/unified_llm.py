@@ -1,14 +1,13 @@
-"""Trader's three-field OpenAI-compatible API configuration.
+"""Trader 统一的 OpenAI 兼容 API 配置，包含三个核心字段。
 
-Precedence: built-in defaults -> legacy environment overrides -> unified LLM_*.
-Provider detection is based on an exact URL hostname, never on secret/key patterns.
-Unrecognised endpoints use the existing OpenAI-compatible client factory.
-"""
+优先级：内置默认值 → 旧版环境变量覆盖 → 统一的 LLM_* 配置。
+根据 URL 的完整主机名识别提供商，绝不通过密钥特征推断。
+无法识别的端点交给现有 OpenAI 兼容客户端工厂处理。"""
 
 import os
 from urllib.parse import urlsplit
 
-# Only hosts represented by existing OpenAI-compatible provider clients.
+# 只识别已有 OpenAI 兼容客户端支持的主机。
 _HOST_PROVIDERS = {
     "api.openai.com": "openai",
     "api.deepseek.com": "deepseek",
@@ -29,17 +28,16 @@ _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def unified_requested() -> bool:
-    """True when at least one new LLM setting is nonempty."""
+    """任意一项新的 LLM 配置非空时返回 True。"""
     return any(os.environ.get(key, "").strip() for key in
                ("LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL"))
 
 
 def resolve_unified() -> tuple[str, str, str] | None:
-    """Return (provider, model, base_url), or None for legacy configuration.
-
-    No key is put in the returned config, reports, or diagnostic messages.
-    Only a loopback endpoint may omit the key.
-    """
+    """返回 (provider, model, base_url)；使用旧版配置时返回 None。
+    
+    API Key 不会写入配置返回值、报告或诊断消息。
+    只有本机回环地址允许省略密钥。"""
     if not unified_requested():
         return None
     model = os.environ.get("LLM_MODEL", "").strip()
@@ -62,7 +60,7 @@ def resolve_unified() -> tuple[str, str, str] | None:
         host == "generativelanguage.googleapis.com" and "/openai" not in parsed.path.lower()
     ):
         raise ValueError("LLM_BASE_URL points to a native API. Supply its OpenAI-compatible endpoint instead")
-    # Gemini offers an OpenAI-compatible route; no native Google SDK needed.
+    # Gemini 支持 OpenAI 兼容端点，因此无需使用原生 Google SDK。
     provider = "openai_compatible" if (
         host == "generativelanguage.googleapis.com"
     ) else _HOST_PROVIDERS.get(host, "openai_compatible")
@@ -70,7 +68,7 @@ def resolve_unified() -> tuple[str, str, str] | None:
 
 
 def apply_unified_config(config: dict) -> dict:
-    """Last layer: override all LLM tiers while retaining other run settings."""
+    """配置合并的最后一层：覆盖全部 LLM 模型层级，保留其他运行配置。"""
     resolved = resolve_unified()
     if resolved is None:
         config["unified_llm"] = False
@@ -86,7 +84,7 @@ def apply_unified_config(config: dict) -> dict:
         deep_think_provider=None,
         quick_think_backend_url=None,
         deep_think_backend_url=None,
-        # Legacy provider-specific reasoning controls cannot leak to other models.
+        # 旧版提供商专属推理参数不能泄漏给其他模型。
         google_thinking_level=None,
         openai_reasoning_effort=None,
         anthropic_effort=None,
