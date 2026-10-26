@@ -8,21 +8,20 @@ from tradingagents.dataflows.vendors.alpha_vantage.common import (
 
 
 def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
-    """Returns live and historical market news & sentiment data from premier news outlets worldwide.
+    """获取全球主要新闻媒体的实时及历史市场新闻与情绪数据。
 
-    Covers stocks, cryptocurrencies, forex, and topics like fiscal policy, mergers & acquisitions, IPOs.
+    覆盖股票、加密资产、外汇，以及财政政策、并购和 IPO 等主题。
 
-    Args:
-        ticker: Stock symbol for news articles.
-        start_date: Start date for news search.
-        end_date: End date for news search.
+    参数：
+        ticker：相关新闻的股票代码。
+        start_date：新闻检索起始日期。
+        end_date：新闻检索结束日期。
 
-    Returns:
-        Dictionary containing news sentiment data or JSON string.
-    """
+    返回：
+        包含新闻情绪数据的字典或 JSON 字符串。"""
 
-    # Without a limit the endpoint returns 50 articles, each with per-ticker
-    # sentiment arrays, and all of it reaches the prompt.
+    # 未设置 limit 时接口默认返回 50 篇文章，
+    # 每篇附带按 ticker 划分的情绪数据，最终全部进入 Prompt。
     params = {
         "tickers": ticker,
         "time_from": format_datetime_for_api(start_date),
@@ -34,20 +33,19 @@ def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
 
 
 def get_global_news(as_of_date, look_back_days: int | None = None, limit: int | None = None) -> dict[str, str] | str:
-    """Returns global market news & sentiment data without ticker-specific filtering.
+    """获取不按特定 ticker 筛选的全球市场新闻与情绪数据。
 
-    Covers broad market topics like financial markets, economy, and more.
+    覆盖金融市场、宏观经济等广泛主题。
 
-    Args:
-        as_of_date: Current date in yyyy-mm-dd format.
-        look_back_days: Number of days to look back; ``None`` uses
-            ``global_news_lookback_days`` from the active config.
-        limit: Maximum number of articles; ``None`` uses
-            ``global_news_article_limit`` from the active config.
+    参数：
+        as_of_date：分析日期，格式 yyyy-mm-dd。
+        look_back_days：回溯天数；None 时读取当前配置的
+            ``global_news_lookback_days``。
+        limit：最大文章数量；None 时读取当前配置的
+            ``global_news_article_limit``。
 
-    Returns:
-        Dictionary containing global news sentiment data or JSON string.
-    """
+    返回：
+        包含全球新闻情绪数据的字典或 JSON 字符串。"""
     from datetime import datetime, timedelta
 
     config = get_config()
@@ -71,17 +69,16 @@ def get_global_news(as_of_date, look_back_days: int | None = None, limit: int | 
 
 
 def get_insider_transactions(symbol: str, as_of_date: str | None = None) -> dict[str, str] | str:
-    """Returns latest and historical insider transactions by key stakeholders.
+    """获取关键利益相关者的最新和历史内部人交易记录。
 
-    Covers transactions by founders, executives, board members, etc.
+    涵盖创始人、高管、董事等人员的交易。
 
-    Args:
-        symbol: Ticker symbol. Example: "IBM".
-        as_of_date: The analysis date (yyyy-mm-dd); a past one withholds them.
+    参数：
+        symbol：ticker，例如 "IBM"。
+        as_of_date：分析日期（yyyy-mm-dd）；历史日期时不返回此数据。
 
-    Returns:
-        Dictionary containing insider transaction data or JSON string.
-    """
+    返回：
+        包含内部人交易数据的字典或 JSON 字符串。"""
 
     withheld = withhold_undisclosed_trades(as_of_date, symbol)
     if withheld:
