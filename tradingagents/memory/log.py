@@ -1,4 +1,4 @@
-"""The memory log: an append-only markdown record of each decision and, once settled, its outcome."""
+"""记忆日志：以追加写入的 Markdown 形式记录每笔决策，并在结算后补充实际结果。"""
 
 import contextlib
 import re
@@ -9,11 +9,11 @@ from tradingagents.dataflows.files import locked
 
 
 class TradingMemoryLog:
-    """Append-only markdown log of trading decisions and reflections."""
+    """只追加写入的交易决策与反思 Markdown 日志。"""
 
-    # HTML comment: cannot appear in LLM prose output, safe as a hard delimiter
+    # HTML 注释标记不会自然出现在 LLM 正文中，适合作为可靠的硬分隔符。
     _SEPARATOR = "\n\n<!-- ENTRY_END -->\n\n"
-    # Precompiled patterns — avoids re-compilation on every load_entries() call
+    # 预编译正则表达式，避免每次 load_entries() 都重新编译。
     _DECISION_RE = re.compile(r"DECISION:\n(.*?)(?=\nREFLECTION:|\Z)", re.DOTALL)
     _REFLECTION_RE = re.compile(r"REFLECTION:\n(.*?)$", re.DOTALL)
 
@@ -24,10 +24,10 @@ class TradingMemoryLog:
         if path:
             self._log_path = Path(path).expanduser()
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
-        # Optional cap on resolved entries. None disables rotation.
+        # 可选的已结算记录数量上限；None 表示禁用轮转清理。
         self._max_entries = cfg.get("memory_log_max_entries")
 
-    # --- Write: a run records its decision ---
+    # --- 写入：记录每次运行产生的决策 ---
 
     def store_decision(
         self,
@@ -36,18 +36,15 @@ class TradingMemoryLog:
         final_trade_decision: str,
         rating: str | None = None,
     ) -> None:
-        """Append pending entry at end of propagate(). No LLM call.
-
-        ``rating`` is the decision's own rating when the caller has it; without
-        one it is read from the decision text.
-        """
+        """在 propagate() 结束时追加一条待结算记录，不调用 LLM。
+        
+        若调用者传入 ``rating``，使用该决策评级；否则从决策文本中解析评级。"""
         if not self._log_path:
             return
         with locked(self._log_path):
-            # Idempotency guard: fast raw-text scan instead of full parse. Any entry
-            # for this ticker and date blocks another, pending or settled: a re-run
-            # after the outcome landed would otherwise count the same decision twice
-            # in past context and in every aggregate over the log.
+            # 幂等保护：直接扫描原始文本而非完整解析。只要相同 ticker 与日期
+            # 已有记录（无论待结算还是已结算），就阻止重复写入；
+            # 否则重复运行可能把同一决策多次计入历史上下文和日志聚合结果。
             if self._log_path.exists():
                 raw = self._log_path.read_text(encoding="utf-8")
                 for line in raw.splitlines():
@@ -60,21 +57,20 @@ class TradingMemoryLog:
                 f.write(entry)
 
     def settling(self, wait: bool = True):
-        """Hold the log for one settlement pass at a time, across threads and processes.
-
-        A pass reads the pending entries, asks the model for a reflection on
-        each and writes it; two passes at once would pay for the same
-        reflections. A separate lock from the one each write takes. Yields
-        whether it is held; with ``wait=False`` another pass is not waited for.
-        """
+        """跨线程、跨进程保证同一时间只有一轮结算持有日志锁。
+        
+        结算会读取待处理记录，对每笔决策调用模型生成反思并写回。
+        并行结算可能对同一笔决策重复付费，因此使用独立于单次写入锁的
+        专用结算锁。返回是否成功持有锁；设置 ``wait=False`` 时，
+        不等待其他正在执行的结算轮次。"""
         if not self._log_path:
             return contextlib.nullcontext(True)
         return locked(f"{self._log_path}.settle", wait=wait)
 
-    # --- Read ---
+    # --- 读取 ---
 
     def load_entries(self) -> list[dict]:
-        """Parse all entries from log. Returns list of dicts."""
+        """解析日志中的全部记录，并返回字典列表。"""
         if not self._log_path or not self._log_path.exists():
             return []
         text = self._log_path.read_text(encoding="utf-8")
@@ -87,21 +83,18 @@ class TradingMemoryLog:
         return entries
 
     def get_pending_entries(self) -> list[dict]:
-        """Return entries with outcome:pending, for settlement."""
+        """返回 outcome:pending 的记录，供结算流程处理。"""
         return [e for e in self.load_entries() if e.get("pending")]
 
     def get_past_context(
         self, ticker: str, n_same: int = 5, n_cross: int = 3, as_of: str | None = None
     ) -> str:
-        """Return formatted past context string for agent prompt injection.
-
-        When ``as_of`` (yyyy-mm-dd) is given, only lessons whose outcome was
-        already known by that date are included — an entry is kept only if it
-        stores a resolution date (``resolved:...``) that is on or before
-        ``as_of``. This keeps a historical/backtest run from learning from
-        outcomes that had not happened yet (#1251). ``as_of=None`` disables the
-        filter, so live runs and pre-migration entries are unaffected.
-        """
+        """生成格式化的历史经验字符串，供注入 Agent Prompt。
+        
+        指定 ``as_of``（yyyy-mm-dd）时，只包含该日期之前已经知道结果的经验；
+        记录必须包含 ``resolved:...`` 结算日期，且该日期不晚于 ``as_of``。
+        这可防止历史分析或回测从当时尚未发生的结果中学习（#1251）。
+        ``as_of=None`` 关闭过滤，以兼容实时运行和迁移前的旧日志记录。"""
         entries = [e for e in self.load_entries() if not e.get("pending")]
         if as_of is not None:
             entries = [e for e in entries if e.get("resolved") and e["resolved"] <= as_of]
@@ -129,7 +122,7 @@ class TradingMemoryLog:
             parts.extend(self._format_reflection_only(e) for e in cross)
         return "\n\n".join(parts)
 
-    # --- Settle: record a decision's outcome and reflection ---
+    # --- 结算：记录决策结果与反思 ---
 
     def update_with_outcome(
         self,
@@ -141,16 +134,15 @@ class TradingMemoryLog:
         reflection: str,
         resolution_date: str | None = None,
     ) -> bool:
-        """Replace pending tag and append REFLECTION section using atomic write.
-
-        Returns whether an entry was updated: False when the decision was no
-        longer pending (another pass settled it first).
-
-        Finds the first pending entry matching (trade_date, ticker), updates
-        its tag with return figures (and the ``resolution_date`` the outcome
-        became known), and appends a REFLECTION section.  Uses a temp-file +
-        os.replace() so a crash mid-write never corrupts the log.
-        """
+        """以原子写入方式更新待结算标记，并追加 REFLECTION 章节。
+        
+        返回记录是否成功更新；若记录已经不再待结算（其他任务先完成），
+        则返回 False。
+        
+        找到与 (trade_date, ticker) 匹配的第一条待结算记录，
+        写入收益率和 ``resolution_date``（实际结果变得可知的日期），
+        并追加反思章节。通过临时文件加 os.replace() 原子替换，
+        防止写入中途崩溃破坏日志。"""
         if not self._log_path or not self._log_path.exists():
             return False
         with locked(self._log_path):
@@ -201,11 +193,10 @@ class TradingMemoryLog:
             return True
 
     def batch_update_with_outcomes(self, updates: list[dict]) -> None:
-        """Apply multiple outcome updates in a single read + atomic write.
-
-        Each element of updates must have keys: ticker, trade_date,
-        raw_return, alpha_return, holding_days, reflection.
-        """
+        """在一次文件读取和原子写入中批量更新多条决策结果。
+        
+        updates 中每个元素都必须提供 ticker、trade_date、
+        raw_return、alpha_return、holding_days 和 reflection。"""
         if not self._log_path or not self._log_path.exists() or not updates:
             return
         with locked(self._log_path):
@@ -253,33 +244,31 @@ class TradingMemoryLog:
             tmp_path.write_text(new_text, encoding="utf-8")
             tmp_path.replace(self._log_path)
 
-    # --- Helpers ---
+    # --- 辅助方法 ---
 
     @staticmethod
     def _resolved_tag(
         trade_date, ticker, rating, raw_pct, alpha_pct, holding_days, resolution_date
     ) -> str:
-        """Build a resolved entry tag, recording the outcome's known-by date.
-
-        ``resolution_date`` (the date of the last price bar used for the return)
-        is the point-in-time cutoff a later run filters on (#1251). Omitted when
-        unavailable, keeping the legacy 6-field tag.
-        """
+        """生成已结算记录标记，同时记录真实结果可知的日期。
+        
+        ``resolution_date`` 即计算收益率时使用的最后一条价格记录日期，
+        后续运行据此执行时点过滤（#1251）。无法取得时省略，
+        保持兼容旧版六字段标记。"""
         tag = f"[{trade_date} | {ticker} | {rating} | {raw_pct} | {alpha_pct} | {holding_days}d"
         if resolution_date:
             tag += f" | resolved:{resolution_date}"
         return tag + "]"
 
     def _apply_rotation(self, blocks: list[str]) -> list[str]:
-        """Drop oldest resolved blocks when their count exceeds max_entries.
-
-        Pending blocks are always kept (they represent unprocessed work).
-        Returns ``blocks`` unchanged when rotation is disabled or under cap.
-        """
+        """已结算记录超过 max_entries 时，删除最早的已结算块。
+        
+        待结算块始终保留，因为它们仍有工作未完成。
+        若禁用轮转或没有超过上限，则原样返回 ``blocks``。"""
         if not self._max_entries or self._max_entries <= 0:
             return blocks
 
-        # Tag each block with (kept, is_resolved) by parsing tag-line markers.
+        # 根据标记行判断每个记录块的 (是否保留, 是否已结算)。
         decisions = []
         for block in blocks:
             stripped = block.strip()
@@ -317,8 +306,8 @@ class TradingMemoryLog:
         fields = [f.strip() for f in tag_line[1:-1].split("|")]
         if len(fields) < 4:
             return None
-        # Optional trailing "resolved:YYYY-MM-DD" field records when the outcome
-        # became known, for point-in-time filtering (#1251).
+        # 可选的末尾 ``resolved:YYYY-MM-DD`` 字段记录结果变得可知的日期，
+        # 供历史时点过滤使用（#1251）。
         resolved = None
         for f in fields[6:]:
             if f.startswith("resolved:"):
