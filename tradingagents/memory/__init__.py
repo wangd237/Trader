@@ -1,9 +1,4 @@
-"""The memory log: each decision recorded as made, settled against the market, and reflected on.
-
-``log`` keeps the entries, ``settlement`` measures a decision's return once its
-holding window has traded, and ``reflection`` turns that outcome into a lesson
-the next run of the same ticker reads.
-"""
+"""记忆日志：记录每次决策、结合真实行情结算结果，并生成反思经验。"""
 
 from tradingagents.memory.log import TradingMemoryLog
 
