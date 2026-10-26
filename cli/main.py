@@ -14,11 +14,11 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients.openai_client import SIGNED_IN_PROVIDERS
 from tradingagents.portfolio import load_portfolio
 
-# prompt_toolkit's win32 output module is importable only on Windows (it asserts
-# the platform at import time), so gate on the platform rather than catching the
-# failure — that way a genuinely broken prompt_toolkit on Windows still surfaces
-# instead of silently disabling the handler below. Off Windows this stays an
-# empty tuple, which `except` accepts and never matches (#1138).
+# prompt_toolkit 的 win32 输出模块只能在 Windows 上导入
+# （模块导入时会检查平台），因此应先判断操作系统，
+# 而不是捕获导入失败；这样 Windows 上真正的依赖故障
+# 不会被误当成正常情况并静默禁用下方处理逻辑。
+# 非 Windows 平台使用空元组，except 接受它且永远不会匹配（#1138）。
 if sys.platform == "win32":  # pragma: no cover - platform dependent
     from prompt_toolkit.output.win32 import NoConsoleScreenBufferError
 
@@ -69,11 +69,10 @@ def analyze(
         help="Save the report as one HTML page too, complete_report.html, without asking (default: yes)",
     ),
 ):
-    """Run an analysis. This is what a bare `trader` does.
-
-    Flags answer their questions; with provider, models, depth and language also
-    set through TRADINGAGENTS_* variables, the run asks nothing.
-    """
+    """运行一次分析；直接执行 `trader` 默认调用此命令。
+    
+    命令行标志可代替交互输入；若同时通过 TRADINGAGENTS_* 环境变量
+    提供提供商、模型、研究深度和输出语言，则整个过程无需提问。"""
     if ctx.invoked_subcommand is not None:
         return
     if clear_checkpoints:
@@ -92,9 +91,9 @@ def analyze(
         flags = {"ticker": ticker, "date": date, "analysts": analysts, "save": save, "show": show, "html": html}
         run_analysis(checkpoint=checkpoint, portfolio=portfolio_context, flags=flags)
     except _NO_CONSOLE_ERRORS:
-        # A terminal with no console buffer cannot host the interactive prompts.
-        # Emit one actionable line on stderr instead of a prompt_toolkit
-        # traceback; plain text, since rich may not render here either (#1138).
+        # 没有控制台缓冲区的终端无法显示交互式提问；
+        # 应向 stderr 输出一行可操作的纯文本提示，
+        # 而不是 prompt_toolkit 的异常堆栈；这里 rich 也可能无法渲染（#1138）。
         typer.echo(
             "Error: no Windows console available. The interactive CLI needs a real "
             "console buffer — run it from Windows Terminal, PowerShell, or cmd.exe "
@@ -121,14 +120,14 @@ def backtest(
         None, "--run-id", help="Continue an earlier sweep: its cells are skipped and its log reused"
     ),
 ):
-    """Score past decisions over a grid of tickers and dates."""
+    """对多个 ticker 和日期组合中的历史决策进行评分。"""
 
     try:
         dates = iter_grid(start, end, every)
         book = load_portfolio(portfolio) if portfolio else None
         kind = AssetType(asset_type.strip().lower())
-        # The analysts are named and checked as for an analysis; without a
-        # choice, every analyst the asset type allows runs.
+        # 分析师名称与合法性校验和普通分析一致；
+        # 如果未指定分析师，则运行该资产类型允许的所有分析师。
         chosen = (parse_analysts(analysts, kind) if analysts
                   else filter_analysts_for_asset_type(list(AnalystType), kind))
     except ValueError as exc:
@@ -160,17 +159,17 @@ def backtest(
         console.print(f"[yellow]unsettled:[/yellow] {ticker}: {reason}")
 
 
-# The plans `login` and `logout` take: the providers signed in to, not keyed.
+# `login` 和 `logout` 处理的是需要账户登录的提供商，而非使用 API Key 的提供商。
 Plan = StrEnum("Plan", {name: name for name in SIGNED_IN_PROVIDERS})
 
 
 @app.command()
 def login(plan: Annotated[Plan, typer.Argument(help="The plan to sign in with")]):
-    """Sign in with your ChatGPT Plus or Pro plan, for the chatgpt provider."""
+    """通过 ChatGPT Plus 或 Pro 订阅登录 chatgpt 提供商。"""
     from tradingagents.llm_clients import chatgpt_auth
 
     try:
-        # One unwrapped line, so the sign-in address can be copied whole.
+        # 将登录地址输出为不换行的一整行，便于完整复制。
         email = chatgpt_auth.sign_in(
             say=lambda line: console.print(line, soft_wrap=True, markup=False, highlight=False))
     except chatgpt_auth.ChatGPTAuthError as exc:
@@ -181,7 +180,7 @@ def login(plan: Annotated[Plan, typer.Argument(help="The plan to sign in with")]
 
 @app.command()
 def logout(plan: Annotated[Plan, typer.Argument(help="The plan to sign out of")]):
-    """Sign out of your ChatGPT plan: revoke this machine's access and forget it."""
+    """退出 ChatGPT 账户：撤销当前设备的访问权限并清除本地登录信息。"""
     from tradingagents.llm_clients import chatgpt_auth
 
     outcome = chatgpt_auth.sign_out()
