@@ -1,1 +1,1 @@
-"""Yahoo Finance: prices, indicators, statements, insider filings and news."""
+"""Yahoo Finance 数据接口：价格、技术指标、财报、内部人交易和新闻。"""
