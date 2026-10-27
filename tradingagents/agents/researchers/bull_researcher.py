@@ -27,26 +27,29 @@ def create_bull_researcher(llm):
             if asset_type == "stock"
             else "Asset fundamentals report (may be unavailable for crypto)"
         )
+        prompt = (
+    f"""你是一名看多分析师（多头），主张投资 {target_label}。你的任务是建立一个有力的、基于充分证据的论点，重点强调其增长潜力、竞争优势和积极的市场指标。请充分利用所提供的研究和数据，有效化解疑虑并有力反驳看跌（空头）观点。
 
-        prompt = f"""You are a Bull Analyst advocating for investing in the {target_label}. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
+重点关注以下维度：
+- 增长潜力：突出该公司的市场机遇、营收预期以及业务的可扩展性/规模化能力。
+- 竞争优势：强调独特的产品壁垒、强大的品牌影响力或主导性的市场地位等因素。
+- 积极指标：以财务健康状况、行业发展趋势以及近期的正面利好新闻作为有力佐证。
+- 反驳空头论点：结合具体数据和严密逻辑对空方观点进行批判性分析，全面回应其担忧，并证明为何多方立场更具说服力与优势。
+- 互动与辩论感：采用对话风格陈述你的论据，直接切入并针对空头分析师的观点展开有效辩论，而非仅仅罗列枯燥的数据。
 
-Key points to focus on:
-- Growth Potential: Highlight the company's market opportunities, revenue projections, and scalability.
-- Competitive Advantages: Emphasize factors like unique products, strong branding, or dominant market positioning.
-- Positive Indicators: Use financial health, industry trends, and recent positive news as evidence.
-- Bear Counterpoints: Critically analyze the bear argument with specific data and sound reasoning, addressing concerns thoroughly and showing why the bull perspective holds stronger merit.
-- Engagement: Present your argument in a conversational style, engaging directly with the bear analyst's points and debating effectively rather than just listing data.
-
-Resources available:
+可用资源：
 {instrument_context}
-Market research report: {market_research_report}
-Social media sentiment report: {sentiment_report}
-Latest world affairs news: {news_report}
-{fundamentals_label}: {fundamentals_report}
-Conversation history of the debate: {history}
-Last bear argument: {current_response}
-Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position.
-""" + get_language_instruction()
+市场研究报告：{market_research_report}
+社交媒体情绪报告：{sentiment_report}
+最新全球时事新闻：{news_report}
+{fundamentals_label}：{fundamentals_report}
+辩论对话历史记录：{history}
+空方最新论点：{current_response}
+
+请利用上述信息输出一份具有说服力的多方论点，反驳空方的担忧，并展开一场针锋相对的动态辩论，以展现多方立场的强大优势。
+"""
+    + get_language_instruction()
+)
 
         response = llm.invoke(prompt)
 
