@@ -215,6 +215,60 @@ def company_identity(symbol: str) -> dict[str, str]:
     return {"company_name": str(name).strip()}
 
 
+def _dividend_disclosure_evidence(ticker: str, curr_date: str) -> str:
+    """Supply dated primary-source dividend evidence, never an estimated payout."""
+    end = pd.Timestamp(curr_date)
+    start = (end - pd.Timedelta(days=180)).strftime("%Y-%m-%d")
+    try:
+        announcements = _announcement_frame(ticker, start, curr_date)
+    except (VendorUnavailableError, NoMarketDataError, ValueError) as exc:
+        return f"Cash dividend disclosure: DATA_UNAVAILABLE ({type(exc).__name__})"
+    if announcements.empty:
+        return "Cash dividend disclosure: DATA_UNAVAILABLE (no dated announcement)"
+
+    titles = announcements["公告标题"].fillna("").astype(str)
+    subset = announcements[
+        titles.str.contains("权益分派|利润分配|分红派息", regex=True, na=False)
+    ].copy()
+    if subset.empty:
+        return "Cash dividend disclosure: DATA_UNAVAILABLE (no matching announcement)"
+
+    # Prefer the actual implementation over earlier proposals and board resolutions.
+    subset["_priority"] = subset["公告标题"].astype(str).str.contains(
+        "实施", regex=False
+    ).astype(int)
+    subset = subset.sort_values(
+        ["_priority", "公告时间"], ascending=[False, False]
+    )
+    row = subset.iloc[0]
+    title = str(row["公告标题"])
+    day = str(row["公告时间"].date())
+    source = str(row["公告链接"])
+    try:
+        body = _pdf_text_from_announcement(source)
+    except Exception as exc:
+        return (
+            f"Dividend announcement: {day} {title}; source: {source}. "
+            f"PDF numbers: DATA_UNAVAILABLE ({type(exc).__name__})."
+        )
+    # Include a tightly bounded excerpt near the actual dividend term,
+    # rather than a long PDF that hides the cash distribution facts in noise.
+    markers = ("每10股", "每 10 股", "每股派", "现金股利", "派发现金", "分配方案")
+    location = next((body.find(x) for x in markers if x in body), -1)
+    if location < 0:
+        return (
+            f"Dividend announcement: {day} {title}; source: {source}. "
+            "PDF extracted but dividend amount not verified."
+        )
+    excerpt = body[max(0, location - 220) : location + 1100]
+    return (
+        f"## Official cash dividend evidence (as of {curr_date})\n"
+        f"Announcement: {title}\nPublished: {day}\nSource: {source}\n"
+        f"Official PDF excerpt: {excerpt}\n"
+        "Use only explicitly disclosed figures; units are crucial (per-share vs per-10-shares)."
+    )
+
+
 def get_fundamentals(ticker: str, curr_date: str) -> str:
     """Historical fundamentals grounded in disclosed income and balance-sheet data."""
     sections = []
@@ -226,6 +280,7 @@ def get_fundamentals(ticker: str, curr_date: str) -> str:
         sections.append("Company profile: DATA_UNAVAILABLE")
     for kind in ("income", "balance"):
         sections.append(_statement(ticker, "quarterly", curr_date, kind))
+    sections.append(_dividend_disclosure_evidence(ticker, curr_date))
     sections.append(
         "Valuation ratios / market capitalization: DATA_UNAVAILABLE; do not estimate. "
         "Historical disclosure cutoff is applied to all statement rows."
