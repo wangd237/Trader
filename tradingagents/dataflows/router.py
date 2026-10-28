@@ -228,7 +228,8 @@ def route_to_vendor(method: str, *args, **kwargs):
         and method not in config.get("tool_vendors", {})
     )
     if is_ashare_request:
-        return VENDOR_METHODS[method]["ashare"](*args, **kwargs)
+        # Keep existing vendor fallback and DATA_UNAVAILABLE semantics.
+        primary_vendors = ["ashare"]
 
     # 配置的数据提供商列表就是完整回退链，不会自动转向用户没有选择的
     # 提供商（#988/#289）。否则可能意外使用其他来源的数据，
