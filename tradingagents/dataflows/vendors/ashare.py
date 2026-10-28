@@ -158,7 +158,7 @@ def get_indicators(
         f"## {indicator} from {cutoff.date()} to {curr_date}",
         "Source: Tencent via AKShare, calculated locally with stockstats",
     ]
-    for date, value in zip(dates, values):
+    for date, value in zip(dates, values, strict=True):
         if cutoff <= date <= pd.Timestamp(curr_date):
             rendered = "N/A" if pd.isna(value) else f"{float(value):.6g}"
             lines.append(f"{date.date()}: {rendered}")
@@ -170,7 +170,7 @@ def company_identity(symbol: str) -> dict[str, str]:
     code, _ = _code(symbol)
     df = _ak().stock_individual_info_em(symbol=code, timeout=15)
     _unavailable(df, symbol, "No company profile")
-    pairs = dict(zip(df["item"], df["value"]))
+    pairs = dict(zip(df["item"], df["value"], strict=True))
     identity = {}
     for source, target in (("股票简称", "company_name"), ("行业", "industry")):
         value = pairs.get(source)
