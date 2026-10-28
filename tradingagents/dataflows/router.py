@@ -1,6 +1,7 @@
 import logging
 
 from tradingagents.dataflows.config import get_config
+from tradingagents.dataflows.vendors import ashare
 from tradingagents.dataflows.errors import (
     NoMarketDataError,
     VendorNotConfiguredError,
@@ -96,6 +97,7 @@ OPTIONAL_CATEGORIES = {"macro_data", "prediction_markets"}
 VENDOR_METHODS = {
     # 股票核心数据接口。
     "get_stock_data": {
+        "ashare": ashare.get_stock_data,
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
     },
@@ -110,16 +112,19 @@ VENDOR_METHODS = {
         "yfinance": get_yfinance_fundamentals,
     },
     "get_balance_sheet": {
+        "ashare": ashare.get_balance_sheet,
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "sec_edgar": get_sec_edgar_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
     },
     "get_cashflow": {
+        "ashare": ashare.get_cashflow,
         "alpha_vantage": get_alpha_vantage_cashflow,
         "sec_edgar": get_sec_edgar_cashflow,
         "yfinance": get_yfinance_cashflow,
     },
     "get_income_statement": {
+        "ashare": ashare.get_income_statement,
         "alpha_vantage": get_alpha_vantage_income_statement,
         "sec_edgar": get_sec_edgar_income_statement,
         "yfinance": get_yfinance_income_statement,
