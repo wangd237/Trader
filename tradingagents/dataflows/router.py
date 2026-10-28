@@ -103,11 +103,13 @@ VENDOR_METHODS = {
     },
     # 技术指标接口。
     "get_indicators": {
+        "ashare": ashare.get_indicators,
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
     },
     # 基本面数据接口。
     "get_fundamentals": {
+        "ashare": ashare.get_fundamentals,
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
     },
@@ -131,6 +133,7 @@ VENDOR_METHODS = {
     },
     # 新闻数据接口。
     "get_news": {
+        "ashare": ashare.get_news,
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
     },
@@ -139,6 +142,7 @@ VENDOR_METHODS = {
         "alpha_vantage": get_alpha_vantage_global_news,
     },
     "get_insider_transactions": {
+        "ashare": ashare.get_insider_transactions,
         "alpha_vantage": get_alpha_vantage_insider_transactions,
         "yfinance": get_yfinance_insider_transactions,
     },
@@ -210,6 +214,21 @@ def route_to_vendor(method: str, *args, **kwargs):
         raise ValueError(f"Method '{method}' not supported")
 
     all_available_vendors = list(VENDOR_METHODS[method].keys())
+
+    # Market-specific override at the data boundary; no Agent or graph changes.
+    # Explicit per-tool vendor configuration remains authoritative.
+    config = get_config()
+    first_arg = args[0] if args else None
+    is_ashare_request = (
+        method in {"get_stock_data", "get_indicators", "get_fundamentals",
+                   "get_balance_sheet", "get_cashflow", "get_income_statement",
+                   "get_news", "get_insider_transactions"}
+        and ashare.is_ashare(first_arg)
+        and "ashare" in VENDOR_METHODS[method]
+        and method not in config.get("tool_vendors", {})
+    )
+    if is_ashare_request:
+        return VENDOR_METHODS[method]["ashare"](*args, **kwargs)
 
     # 配置的数据提供商列表就是完整回退链，不会自动转向用户没有选择的
     # 提供商（#988/#289）。否则可能意外使用其他来源的数据，
