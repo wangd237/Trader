@@ -1,7 +1,6 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.analysts.turn import take_turn
-from tradingagents.dataflows.vendors import ashare
 from tradingagents.agents.context import get_instrument_context_from_state, get_language_instruction
 from tradingagents.agents.tools import (
     get_global_news,
@@ -9,6 +8,7 @@ from tradingagents.agents.tools import (
     get_news,
     get_prediction_markets,
 )
+from tradingagents.dataflows.vendors import ashare
 
 # 分析师可调用的工具清单；工具节点也由同一元组构建。
 TOOLS = (
