@@ -75,6 +75,31 @@ trader backtest NVDA --start 2026-09-01 --end 2026-09-15 --every 7
 
 
 
+## A 股研究（开发分支，待真实 LLM 验收）
+
+本分支按股票代码自动选择国内数据提供商，不改变原有 CLI 和多 Agent 流程：
+
+- 行情及技术指标：腾讯历史日线（经 AKShare），成交量统一为“股”。
+- 财报：新浪三大报表，仅使用分析日期之前实际披露的数据。
+- 公司公告：巨潮资讯公告目录 + 部分 PDF 正文；无公告时明确说明。
+- A 股情绪：不调用 Reddit/Stocktwits；缺少可靠舆情来源时明确标注。
+- 历史结算：A 股使用国内行情，海外股票仍沿用原供应商。
+
+安装所需可选依赖（仅此分支）：
+
+~~~powershell
+python -m pip install -e ".[ashare,dev]"
+python -m pytest -q tests/test_ashare_vendor.py
+~~~
+
+若运行真实研究（**会调用 LLM 并消耗 API 额度**），请先在 `.env` 中配置模型，并将 `TRADINGAGENTS_OUTPUT_LANGUAGE` 设置为 `Chinese`：
+
+~~~powershell
+trader --ticker 600519.SH --date 2026-09-30 --analysts market,fundamentals,news,social --save --no-show
+~~~
+
+**限制：** 当前尚未完成 A 股全流程真实 LLM 验收；估值、社交舆情、国内宏观等未验证来源不应由模型猜测。部分接口可能受地域网络、代理与公开数据源稳定性影响。
+
 ## 代码结构
 
 | 路径 | 责任 |
