@@ -25,6 +25,7 @@ from tradingagents.agents.structured import (
     invoke_structured_or_freetext,
 )
 from tradingagents.agents.tools import get_news
+from tradingagents.dataflows.vendors import ashare
 from tradingagents.dataflows.vendors.reddit import (
     CRYPTO_SUBREDDITS,
     DEFAULT_SUBREDDITS,
@@ -52,28 +53,41 @@ def create_sentiment_analyst(llm):
         start_date = _seven_days_back(end_date)
         instrument_context = get_instrument_context_from_state(state)
 
-        # 预先获取三个数据源。各抓取器失败时会降级并返回字符串，
-        # 不会向上抛异常；LLM 总能收到真实数据或明确的不可用提示。
-        news_block = get_news.func(ticker, start_date, end_date)
-        # 传入分析窗口，避免历史运行将今天的社交帖子泄漏到回测中（#1220）。
-        screen = jev_screen(ticker)
-        stocktwits_block = fetch_stocktwits_messages(
-            ticker, limit=30, start_date=start_date, end_date=end_date, screen=screen
-        )
-        subreddits = subreddits_for(ticker)
-        reddit_block = fetch_reddit_posts(
-            ticker, subreddits, start_date=start_date, end_date=end_date, screen=screen
-        )
-
-        system_message = _build_system_message(
-            ticker=ticker,
-            start_date=start_date,
-            end_date=end_date,
-            news_block=news_block,
-            stocktwits_block=stocktwits_block,
-            reddit_block=reddit_block,
-            subreddits=subreddits,
-        )
+        # A 股不查询 Reddit/Stocktwits，也不将美国市场情绪硬套到国内标的。
+        if ashare.is_ashare(ticker):
+            try:
+                news_block = get_news.func(ticker, start_date, end_date)
+            except Exception as exc:
+                news_block = f"DATA_UNAVAILABLE: CNINFO announcements ({type(exc).__name__})"
+            system_message = (
+                f"You are an A-share market sentiment analyst. Analyze {ticker} only "
+                f"from dated official disclosures available between {start_date} and {end_date}. "
+                "Retail social sentiment data is DATA_UNAVAILABLE, not neutral sentiment. "
+                "Do not invent a social Bullish/Bearish ratio or infer a bullish score from "
+                "missing evidence. Set confidence low where available sources are sparse. "
+                "Cite actual disclosure titles, dates and evidence; do not assume later events. "
+                f"\n\nOfficial disclosures:\n{news_block}\n" + get_language_instruction()
+            )
+        else:
+            # 海外标的仍使用原有三源情绪逻辑。
+            news_block = get_news.func(ticker, start_date, end_date)
+            screen = jev_screen(ticker)
+            stocktwits_block = fetch_stocktwits_messages(
+                ticker, limit=30, start_date=start_date, end_date=end_date, screen=screen
+            )
+            subreddits = subreddits_for(ticker)
+            reddit_block = fetch_reddit_posts(
+                ticker, subreddits, start_date=start_date, end_date=end_date, screen=screen
+            )
+            system_message = _build_system_message(
+                ticker=ticker,
+                start_date=start_date,
+                end_date=end_date,
+                news_block=news_block,
+                stocktwits_block=stocktwits_block,
+                reddit_block=reddit_block,
+                subreddits=subreddits,
+            )
 
         prompt = ChatPromptTemplate.from_messages(
             [
