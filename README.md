@@ -2,7 +2,7 @@
 
 ## 项目简介（Overview）
 
-**Trader** 是基于 **LangGraph** 构建的多智能体金融市场研究框架，基于 [TradingAgents](https://github.com/TauricResearch/TradingAgents) 进行 CLI 化与本地化适配。它让不同角色的 Agent 分工完成市场研究、多空辩论、交易计划与风险评估，最终生成研究结论和结构化报告。
+**Trader** 是基于 **LangGraph** 构建的多智能体金融市场研究框架，创建不同角色的 Agent 分工完成市场研究、多空辩论、交易计划与风险评估，最终生成研究结论和结构化报告。
 
 **输入**：标的代码（Ticker）、分析日期、可选的持仓信息与分析师组合。  
 **输出**：最终决策与评级、多阶段 Agent 研究报告（Markdown / HTML）及运行记录。
