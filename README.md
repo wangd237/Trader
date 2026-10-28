@@ -1,125 +1,181 @@
 # Trader
 
-**Trader** 是一个多智能体金融市场研究框架。它将行情、基本面、新闻和市场情绪交给不同的分析 Agent，再经过多空辩论、交易计划和风险评议，形成最终研究结论。
+## 项目简介（Overview）
 
-> **声明**：模型可能产生错误分析；输出不构成投资建议，也不应直接用于真实资金的自动交易。
+**Trader** 是基于 **LangGraph** 构建的多智能体金融市场研究框架，基于 [TradingAgents](https://github.com/TauricResearch/TradingAgents) 进行 CLI 化与本地化适配。它让不同角色的 Agent 分工完成市场研究、多空辩论、交易计划与风险评估，最终生成研究结论和结构化报告。
 
-## 工作流程
+**输入**：标的代码（Ticker）、分析日期、可选的持仓信息与分析师组合。  
+**输出**：最终决策与评级、多阶段 Agent 研究报告（Markdown / HTML）及运行记录。
 
-~~~text
-输入：标的代码 + 分析日期 + 可选的持仓信息
-                    |
-          Market / Fundamentals
-          News / Sentiment
-          (分析 Agent 并行)
-                    |
-        Bull / Bear Researchers
-             (多空辩论)
-                    |
-           Research Manager
-                    |
-               Trader
-                    |
-     Risk Debators (多方风险审议)
-                    |
-           Portfolio Manager
-                    |
-      决策结论 + 分析报告 + 轨迹
-~~~
+项目以**研究分析与辅助决策**为目标，不执行真实账户交易。
 
-运行层使用 LangGraph 编排与工具接口，包含多模型提供商接入、数据源路由、记忆/检查点、报告和历史回测。
+## 核心功能（Features）
 
-## 安装
+- **多 Agent 协同研究**：市场、基本面、新闻、情绪分析师分工研究；多空研究员辩论，随后由交易员、风险团队和投资组合经理形成最终结论。
+- **LangGraph 工作流**：支持分析师并行执行、独立工具调用子图、共享状态传递以及研究和风险阶段的条件路由。
+- **多市场数据接入**：通过统一数据路由使用行情、技术指标、财报和新闻数据；**A 股已完成真实 LLM 全流程验收**，可按股票代码自动选择国内数据源。
+- **统一 LLM 配置**：使用 `LLM_API_KEY`、`LLM_MODEL` 和 `LLM_BASE_URL` 接入 OpenAI-compatible API；底层保留多模型提供商客户端。
+- **交互式命令行**：通过 `trader` 选择标的、日期、分析师和研究深度，也支持参数化、非交互运行。
+- **报告与执行恢复**：输出分阶段 Markdown 报告、完整 HTML 报告及日志；支持历史决策记忆和可选的检查点恢复。
+- **历史回测与持仓分析**：支持多个标的/日期的历史决策评估，可传入持仓文件供交易和风险 Agent 参考。
 
-建议 Python 3.11+；以下以 Windows PowerShell / Conda 为例。
+## 项目架构（Architecture）
 
-~~~powershell
+### Agent 工作流程
+
+```text
+输入：Ticker / 日期 / 可选持仓
+                |
+        +-------+-------+------------------+
+        |       |       |                  |
+      Market   News  Fundamentals       Sentiment
+      Analyst Analyst   Analyst          Analyst
+        |       |       |                  |
+        +-------+-------+------------------+
+                |  （选定的分析师并行运行）
+                v
+          Bull / Bear Researchers
+              多空辩论
+                |
+          Research Manager
+                |
+              Trader
+                |
+     Aggressive / Neutral / Conservative
+              风险讨论
+                |
+          Portfolio Manager
+                |
+       最终决策、评级与研究报告
+
+Memory Log：与分析师阶段并行处理历史决策，
+            为后续组合决策提供历史经验。
+```
+
+实际流程由 LangGraph 管理：分析师在独立子图中调用数据工具，研究辩论与风险讨论按条件路由推进，最终由 Portfolio Manager 汇总。
+
+### 工程架构
+
+```text
+CLI / Backtest / Python API
+             |
+     TradingAgentsGraph
+       (LangGraph Runtime)
+             |
+   +---------+----------+
+   |                    |
+ Agents               Graph
+ (业务角色)      (状态 / 路由 / 检查点)
+   |                    |
+   +---------+----------+
+             |
+   +---------+----------+-----------+
+   |                    |           |
+LLM Clients          Dataflows     Memory
+(模型接入)          (数据源路由)   (历史经验)
+   |                    |           |
+   +---------+----------+-----------+
+             |
+       决策 / 报告 / 日志
+```
+
+## 快速开始（Quick Start）
+
+**环境要求**：Python 3.11+，Git，以及可访问的 LLM API。以下以 Windows PowerShell 和 Conda 为例。
+
+**1. 克隆与安装**
+
+```powershell
 git clone https://github.com/wangd237/Trader.git
 cd Trader
-conda create -n trader python=3.13 -y
+conda create -n trader python=3.11 -y
 conda activate trader
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 Copy-Item .env.example .env
-~~~
+```
 
-打开 .env，只需填写三个 **LLM** 字段：
+如需分析 **A 股**，额外安装数据源依赖：
 
-~~~env
-LLM_API_KEY=你的密钥
+```powershell
+python -m pip install -e ".[ashare]"
+```
+
+**2. 配置模型**
+
+编辑项目根目录的 `.env`，填写实际可用的 OpenAI-compatible API 信息。以下为示例：
+
+```dotenv
+LLM_API_KEY=your_api_key
 LLM_MODEL=deepseek-chat
-LLM_BASE_URL=https://api.deepseek.com/v1
-~~~
-并配置报告保存地址和输出语言：
-~~~env
+LLM_BASE_URL=https://api.deepseek.com
 TRADINGAGENTS_OUTPUT_LANGUAGE=Chinese
-TRADINGAGENTS_RESULTS_DIR=自定义报告保存地址
-~~~
+TRADINGAGENTS_RESULTS_DIR=./results
+```
 
+`LLM_BASE_URL` 填 API 基础地址，不是 `/chat/completions` 接口；请勿提交包含密钥的 `.env`。
 
+**3. 启动**
 
-## 使用
-
-~~~powershell
-# 交互式引导选择标的、分析日期和分析师
+```powershell
 trader
+```
 
-# 查看可用参数
-trader --help
+CLI 会引导选择标的、分析日期、分析师和研究深度。运行过程中会展示 Agent 执行进展；完成后可保存研究报告。
 
-# 配置上述三个 LLM 字段后，可使用无交互选项
+## 使用方式（Usage）
+
+**分析美股（非交互）**
+
+```powershell
 trader --ticker NVDA --date 2026-10-20 --analysts market,news --save --no-show
+```
 
-# 可选：回测 (会消耗模型调用额度)
-trader backtest NVDA --start 2026-09-01 --end 2026-09-15 --every 7
-~~~
+**分析 A 股**
 
-
-
-## A 股研究（开发分支，待真实 LLM 验收）
-
-本分支按股票代码自动选择国内数据提供商，不改变原有 CLI 和多 Agent 流程：
-
-- 行情及技术指标：腾讯历史日线（经 AKShare），成交量统一为“股”。
-- 财报：新浪三大报表，仅使用分析日期之前实际披露的数据。
-- 公司公告：巨潮资讯公告目录 + 部分 PDF 正文；无公告时明确说明。
-- A 股情绪：不调用 Reddit/Stocktwits；缺少可靠舆情来源时明确标注。
-- 历史结算：A 股使用国内行情，海外股票仍沿用原供应商。
-
-安装所需可选依赖（仅此分支）：
-
-~~~powershell
-python -m pip install -e ".[ashare,dev]"
-python -m pytest -q tests/test_ashare_vendor.py
-~~~
-
-若运行真实研究（**会调用 LLM 并消耗 API 额度**），请先在 `.env` 中配置模型，并将 `TRADINGAGENTS_OUTPUT_LANGUAGE` 设置为 `Chinese`：
-
-~~~powershell
+```powershell
 trader --ticker 600519.SH --date 2026-09-30 --analysts market,fundamentals,news,social --save --no-show
-~~~
+```
 
-**限制：** 当前尚未完成 A 股全流程真实 LLM 验收；估值、社交舆情、国内宏观等未验证来源不应由模型猜测。部分接口可能受地域网络、代理与公开数据源稳定性影响。
+A 股行情及技术指标、财务报表和公告/新闻通过国内数据源适配；无需修改 Agent 工作流。以上示例运行时会调用 LLM，产生 API 使用费用。
 
-## 代码结构
+**历史回测**
 
-| 路径 | 责任 |
+```powershell
+trader backtest NVDA --start 2026-09-01 --end 2026-09-15 --every 7
+```
+
+**常用参数**
+
+| 参数 | 用途 |
 | --- | --- |
-| `tradingagents/agents/` | 各类分析师、研究员、交易员、风险及组合管理 Agent |
-| `tradingagents/graph/` | LangGraph 工作流编排、状态传递、条件路由及检查点 |
-| `tradingagents/dataflows/` | 市场数据获取、供应商路由与缓存 |
-| `tradingagents/llm_clients/` | 多种模型 Provider 的统一接入 |
-| `tradingagents/memory/` | 决策历史与经验回顾 |
-| `tradingagents/backtest.py` | 历史日期网格回测 |
-| `tradingagents/reporting.py` | Markdown 与 HTML 报告 |
-| `cli/` | 命令行交互、动态状态展示及参数处理 |
-| `tests/` | 参考实现的回归测试及必要的 Trader 适配测试 |
+| `--ticker` / `--date` | 指定分析标的与日期（YYYY-MM-DD） |
+| `--analysts` | 选择分析师：`market`、`news`、`fundamentals`、`social` |
+| `--save` / `--no-show` | 保存报告 / 不在结束时展示完整报告 |
+| `--html` / `--no-html` | 控制是否额外保存 HTML 报告 |
+| `--portfolio` | 读取包含持仓及现金信息的 JSON 文件 |
+| `--checkpoint` | 启用节点级检查点及中断恢复 |
 
-本项目暂不计划单独开发 Web UI、账户登录系统或实盘交易执行服务。
+查看完整命令说明：`trader --help`、`trader backtest --help`。
 
-## 开发与测试
+**输出位置**：默认报告位于 `<TRADINGAGENTS_RESULTS_DIR>/reports/<Ticker>_<时间戳>/`，包含 `complete_report.md`、`complete_report.html` 和各 Agent 的分阶段报告。CLI 运行日志另存于 `<TRADINGAGENTS_RESULTS_DIR>/<Ticker>/<分析日期>/`。
 
-~~~powershell
-python -m pytest -q
-python -m ruff check .
-~~~
+## 项目结构（Project Structure）
 
+```text
+Trader/
+├── cli/                         # CLI 入口、交互引导、实时状态展示
+├── tradingagents/
+│   ├── agents/                  # 分析师、研究员、交易员及风控等 Agent
+│   ├── graph/                   # LangGraph 编排、路由、状态和检查点
+│   ├── dataflows/               # 市场数据工具、提供商路由与缓存
+│   │   └── vendors/             # Yahoo、A 股等数据源适配
+│   ├── llm_clients/             # 模型客户端及提供商工厂
+│   ├── memory/                  # 历史决策记录与反思
+│   ├── reporting.py             # Markdown 报告生成
+│   ├── report_html.py           # HTML 报告生成
+│   └── backtest.py              # 历史回测
+├── tests/                       # 自动化测试
+├── .env.example                 # 环境变量示例
+├── pyproject.toml               # 依赖与 CLI 命令注册
+└── main.py                      # Python 调用示例
+```
