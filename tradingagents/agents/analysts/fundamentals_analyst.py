@@ -32,6 +32,20 @@ def create_fundamentals_analyst(llm):
             + get_language_instruction()
         )
 
+        # A-share report data can omit cash distributions. Require independently dated evidence.
+        from tradingagents.dataflows.vendors import ashare
+
+        if ashare.is_ashare(state["company_of_interest"]):
+            system_message += (
+                " For cash dividends, per-share payouts, cash-payout totals, "
+                "and payout ratios, use only the official disclosure evidence "
+                "returned by get_fundamentals or get_news. Check per-share versus "
+                "per-10-shares units. If no verified payout data is available, "
+                "write DATA_UNAVAILABLE; do not infer dividends from a prior year "
+                "or fabricate an estimate. Clearly distinguish independently "
+                "calculated ratios from reported figures."
+            )
+
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
