@@ -6,7 +6,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from tradingagents.dataflows.symbols import normalize_symbol
-from tradingagents.dataflows.vendors.yahoo.market import get_closes
+from tradingagents.dataflows.vendors import ashare
+from tradingagents.dataflows.vendors.yahoo.market import get_closes as get_yahoo_closes
+
+
+def get_closes(ticker: str, start_date: str, end_date: str):
+    """Choose the matching market price source without changing settlement semantics."""
+    if ashare.is_ashare(ticker):
+        return ashare.get_closes(ticker, start_date, end_date)
+    return get_yahoo_closes(ticker, start_date, end_date)
 
 logger = logging.getLogger(__name__)
 

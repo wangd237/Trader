@@ -62,12 +62,18 @@ def build_verified_market_snapshot(
     as_of_date: str,
     look_back_days: int = 30,
     indicators: Iterable[str] | None = None,
+    data: pd.DataFrame | None = None,
 ) -> str:
     """渲染真实行情快照，包括最新 OHLCV、技术指标及近期收盘价。"""
     # `df` 保留原始 OHLCV 大写列名（Open/High/Low/Close/Volume）；
     # stockstats 的 `wrap()` 会转为小写并加入指标列。
     # 因此原始价格读取 `df`，技术指标读取 `stock_df`。
-    df = _verified_rows(symbol, as_of_date)
+    df = _verified_rows(symbol, as_of_date) if data is None else data.copy()
+    if data is not None:
+        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        df = df[df['Date'].le(pd.Timestamp(as_of_date))].sort_values('Date')
+        if df.empty:
+            raise NoMarketDataError(symbol, symbol, 'no A-share price rows as of date')
     stock_df = wrap(df.copy())
 
     selected = tuple(indicators or DEFAULT_SNAPSHOT_INDICATORS)

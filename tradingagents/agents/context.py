@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tradingagents.dataflows.date_window import is_historical
+from tradingagents.dataflows.vendors import ashare
 from tradingagents.dataflows.vendors.yahoo.fundamentals import get_company_profile
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,8 @@ def resolve_instrument_identity(ticker: str) -> dict:
 @functools.lru_cache(maxsize=256)
 def _identity(ticker: str) -> dict:
     """返回数据源中指定 ``ticker`` 的身份字段；查询失败时抛出异常。"""
+    if ashare.is_ashare(ticker):
+        return ashare.company_identity(ticker)
     info = get_company_profile(ticker)
     identity: dict[str, str] = {}
     company_name = _clean_identity_value(info.get("longName")) or _clean_identity_value(

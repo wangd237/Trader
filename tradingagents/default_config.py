@@ -162,6 +162,7 @@ def build_default_config() -> dict:
         },
         # 工具级配置（优先于类别级配置）。
         "tool_vendors": {
+            # A 股可通过 tool_vendors 单项设置为 ashare；海外默认配置保持不变。
             # 示例："get_stock_data": "alpha_vantage",  # 覆盖类别默认提供商
         },
         # 反思层计算 Alpha 时使用的基准。
