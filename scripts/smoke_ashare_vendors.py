@@ -8,7 +8,6 @@ from datetime import datetime
 from pathlib import Path
 
 from tradingagents.dataflows.router import route_to_vendor
-from tradingagents.dataflows.vendors import ashare
 
 SAMPLES = ("600519.SH", "000001.SZ", "300750.SZ")
 
