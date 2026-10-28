@@ -61,3 +61,56 @@ def test_router_registers_ashare_vendor():
     from tradingagents.dataflows.router import VENDOR_METHODS
     for method in ("get_stock_data", "get_balance_sheet", "get_cashflow", "get_income_statement"):
         assert "ashare" in VENDOR_METHODS[method]
+
+
+def test_router_automatically_selects_ashare_without_user_configuration(monkeypatch):
+    from tradingagents.dataflows import router
+
+    called = []
+    monkeypatch.setattr(ashare, "get_stock_data", lambda *args: called.append(args) or "A-SHARE")
+    monkeypatch.setitem(router.VENDOR_METHODS["get_stock_data"], "ashare", ashare.get_stock_data)
+    result = router.route_to_vendor("get_stock_data", "600519.SH", "2026-09-01", "2026-09-30")
+    assert result == "A-SHARE"
+    assert called[0][0] == "600519.SH"
+
+
+def test_cninfo_announcement_cuts_future_and_handles_empty(monkeypatch):
+    df = pd.DataFrame([
+        {"代码": "600519", "公告标题": "old", "公告时间": "2026-09-29",
+         "公告链接": "http://www.cninfo.com.cn/new/disclosure/detail?announcementId=123&announcementTime=2026-09-29"},
+        {"代码": "600519", "公告标题": "future", "公告时间": "2026-10-21",
+         "公告链接": "http://www.cninfo.com.cn/new/disclosure/detail?announcementId=124&announcementTime=2026-10-21"},
+    ])
+    monkeypatch.setattr(
+        ashare, "_ak",
+        lambda: SimpleNamespace(stock_zh_a_disclosure_report_cninfo=lambda **kwargs: df),
+    )
+    monkeypatch.setattr(ashare, "_pdf_text_from_announcement", lambda link: "Official PDF text " * 8)
+    result = ashare.get_news("600519.SH", "2026-09-01", "2026-09-30")
+    assert "old" in result
+    assert "future" not in result
+
+    monkeypatch.setattr(
+        ashare, "_ak",
+        lambda: SimpleNamespace(stock_zh_a_disclosure_report_cninfo=lambda **kwargs: pd.DataFrame()),
+    )
+    assert "NO_NEWS_AVAILABLE" in ashare.get_news("600519.SH", "2026-09-01", "2026-09-30")
+
+
+def test_ashare_snapshot_uses_domestic_rows(monkeypatch):
+    from tradingagents.agents import tools as agent_tools
+
+    frame = pd.DataFrame([{
+        "Date": pd.Timestamp("2026-09-30"), "Open": 11.5,
+        "High": 11.7, "Low": 11.4, "Close": 11.57, "Volume": 104_535_700,
+    }])
+    monkeypatch.setattr(ashare, "load_ohlcv", lambda symbol, cutoff: frame)
+    monkeypatch.setattr(
+        agent_tools, "build_verified_market_snapshot",
+        lambda symbol, cutoff, look_back_days, data=None: (
+            "domestic" if data is frame else "wrong"
+        ),
+    )
+    assert agent_tools.get_verified_market_snapshot.func(
+        "000001.SZ", "2026-09-30"
+    ) == "domestic"
