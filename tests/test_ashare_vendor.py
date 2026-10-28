@@ -114,3 +114,34 @@ def test_ashare_snapshot_uses_domestic_rows(monkeypatch):
     assert agent_tools.get_verified_market_snapshot.func(
         "000001.SZ", "2026-09-30"
     ) == "domestic"
+
+
+def test_ashare_vendor_error_becomes_unavailable_sentinel(monkeypatch):
+    from tradingagents.dataflows import router
+    from tradingagents.dataflows.errors import VendorUnavailableError
+
+    def offline(*args):
+        raise VendorUnavailableError("Simulated outage")
+
+    monkeypatch.setitem(router.VENDOR_METHODS["get_stock_data"], "ashare", offline)
+    result = router.route_to_vendor(
+        "get_stock_data", "600519.SH", "2026-09-01", "2026-09-30"
+    )
+    assert result.startswith("DATA_UNAVAILABLE:")
+
+
+def test_identity_falls_back_to_official_cninfo_name(monkeypatch):
+    def failed_profile(**kwargs):
+        raise ConnectionError("Simulated Eastmoney proxy failure")
+
+    def announcements(**kwargs):
+        return pd.DataFrame([{"代码": "600519", "简称": "贵州茅台"}])
+
+    monkeypatch.setattr(
+        ashare, "_ak",
+        lambda: SimpleNamespace(
+            stock_individual_info_em=failed_profile,
+            stock_zh_a_disclosure_report_cninfo=announcements,
+        ),
+    )
+    assert ashare.company_identity("600519.SH") == {"company_name": "贵州茅台"}
