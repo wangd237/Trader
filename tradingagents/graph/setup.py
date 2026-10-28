@@ -116,8 +116,11 @@ class GraphSetup:
                 - "fundamentals"：基本面分析师
             memory_node：结算历史决策并返回本次运行 ``past_context`` 的节点；
                 与分析师节点并行执行。"""
+
+        # 1. 确定启用哪些分析师
         plan = build_analyst_execution_plan(selected_analysts)
 
+        # 2.创建各个分析师的agent函数
         analyst_factories = {
             "market": lambda: create_market_analyst(self.quick_thinking_llm),
             "social": lambda: create_sentiment_analyst(self.quick_thinking_llm),
@@ -135,12 +138,14 @@ class GraphSetup:
         conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
         portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
 
+        # 3. 创建主图
         workflow = StateGraph(AgentState)
-
+        # 4. 将每个分析师的子图添加到主图中
         for spec in plan.specs:
             workflow.add_node(spec.agent_node,
                               _analyst_graph(spec, analyst_factories[spec.key](), self.max_tool_rounds))
 
+        # 5. 将研究团队和交易团队的节点添加到主图中
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
@@ -153,6 +158,7 @@ class GraphSetup:
         # 分析师并行执行；只有全部分析师提交报告后才开始研究辩论。
         # Memory Log 也同时结算历史决策，但只有 Portfolio Manager 读取经验。
         first_steps = [spec.agent_node for spec in plan.specs]
+        # 6.并行启动分析师和memory log
         if memory_node is not None:
             workflow.add_node("Memory Log", memory_node)
             first_steps.append("Memory Log")

@@ -55,6 +55,7 @@ def create_bull_researcher(llm):
 
         argument = f"Bull Analyst: {response.content}"
 
+        # 因为默认是采用覆盖更新，因此Bull在返回新字典时，需要将hear_history这样的没有修改的字段信息也保留，否则旧信息丢失。
         new_investment_debate_state = {
             "history": history + "\n" + argument,
             "bull_history": bull_history + "\n" + argument,
