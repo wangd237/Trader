@@ -1,12 +1,12 @@
 import logging
 
 from tradingagents.dataflows.config import get_config
-from tradingagents.dataflows.vendors import ashare
 from tradingagents.dataflows.errors import (
     NoMarketDataError,
     VendorNotConfiguredError,
     VendorUnavailableError,
 )
+from tradingagents.dataflows.vendors import ashare
 from tradingagents.dataflows.vendors.alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
