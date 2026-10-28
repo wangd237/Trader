@@ -6,7 +6,7 @@ import re
 
 import pandas as pd
 
-from tradingagents.dataflows.errors import NoMarketDataError
+from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
 
 _A_SHARE = re.compile(r"^(\d{6})\.(SH|SS|SZ|BJ)$", re.IGNORECASE)
 _STATEMENTS = {
@@ -17,8 +17,21 @@ _STATEMENTS = {
 
 
 def _ak():
-    import akshare
+    try:
+        import akshare
+    except ImportError as exc:
+        raise VendorUnavailableError("AKShare is not installed; install trader[ashare]") from exc
     return akshare
+
+
+def _call(name: str, **kwargs):
+    """Convert vendor HTTP failures to the existing non-fabricating fallback sentinel."""
+    try:
+        return getattr(_ak(), name)(**kwargs)
+    except (NoMarketDataError, VendorUnavailableError):
+        raise
+    except Exception as exc:
+        raise VendorUnavailableError(f"AKShare {name} unavailable: {type(exc).__name__}: {exc}") from exc
 
 
 def _code(symbol: str) -> tuple[str, str]:
@@ -52,7 +65,7 @@ def _statement(symbol: str, freq: str, curr_date: str, kind: str) -> str:
         raise ValueError("Financial statements require analysis date")
     if freq not in {"quarterly", "annual"}:
         raise ValueError(f"Unsupported statement frequency: {freq}")
-    df = _ak().stock_financial_report_sina(
+    df = _call("stock_financial_report_sina",
         stock=f"{exchange}{code}", symbol=_STATEMENTS[kind]
     )
     _unavailable(df, symbol, f"No {_STATEMENTS[kind]} rows")
@@ -95,7 +108,7 @@ def is_ashare(symbol: str) -> bool:
 def _price_frame(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
     """Historical A-share OHLCV, one canonical dataframe for all downstream consumers."""
     code, exchange = _code(symbol)
-    df = _ak().stock_zh_a_hist_tx(
+    df = _call("stock_zh_a_hist_tx",
         symbol=f"{exchange}{code}",
         start_date=start_date.replace("-", ""),
         end_date=end_date.replace("-", ""),
@@ -168,7 +181,7 @@ def get_indicators(
 def company_identity(symbol: str) -> dict[str, str]:
     """Best-effort current identity lookup; no unverified valuation numbers."""
     code, _ = _code(symbol)
-    df = _ak().stock_individual_info_em(symbol=code, timeout=15)
+    df = _call("stock_individual_info_em",symbol=code, timeout=15)
     _unavailable(df, symbol, "No company profile")
     pairs = dict(zip(df["item"], df["value"], strict=True))
     identity = {}
@@ -201,7 +214,7 @@ def _announcement_frame(
     ticker: str, start_date: str, end_date: str, category: str = ""
 ) -> pd.DataFrame:
     code, _ = _code(ticker)
-    df = _ak().stock_zh_a_disclosure_report_cninfo(
+    df = _call("stock_zh_a_disclosure_report_cninfo",
         symbol=code, start_date=start_date.replace("-", ""),
         end_date=end_date.replace("-", ""), category=category,
     )
