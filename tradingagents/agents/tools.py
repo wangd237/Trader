@@ -9,6 +9,7 @@ from tradingagents.dataflows.date_window import as_of, as_of_window
 from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
 from tradingagents.dataflows.router import no_data_available, route_to_vendor, vendor_unavailable
 from tradingagents.dataflows.vendors.yahoo.snapshot import build_verified_market_snapshot
+from tradingagents.dataflows.vendors import ashare
 
 
 @tool
@@ -83,7 +84,11 @@ def get_verified_market_snapshot(
     """
     # 工具内部异常如果直接向上传递，可能终止整个运行。
     try:
-        return build_verified_market_snapshot(symbol, as_of(curr_date, trade_date), look_back_days)
+        cutoff = as_of(curr_date, trade_date)
+        if ashare.is_ashare(symbol):
+            data = ashare.load_ohlcv(symbol, cutoff)
+            return build_verified_market_snapshot(symbol, cutoff, look_back_days, data=data)
+        return build_verified_market_snapshot(symbol, cutoff, look_back_days)
     except VendorUnavailableError as exc:
         return vendor_unavailable("get_verified_market_snapshot", exc)
     except NoMarketDataError as exc:
