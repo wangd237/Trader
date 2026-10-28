@@ -52,6 +52,21 @@ Write a very detailed and nuanced report of the trends you observe. Provide spec
             + get_language_instruction()
         )
 
+        from tradingagents.dataflows.vendors import ashare
+
+        if ashare.is_ashare(state["company_of_interest"]):
+            system_message += (
+                " IMPORTANT A-SHARE PRICE CONVENTION: Tencent OHLCV here is "
+                "unadjusted for dividends. Cash ex-dividend dates can cause "
+                "mechanical price drops that are not bearish selling pressure. "
+                "Do not describe an ex-dividend opening-price change as a bearish "
+                "gap without corporate-action evidence and an adjusted-price "
+                "comparison. Check whether a gap was subsequently filled using "
+                "intraday High and Low, not closing prices alone. Do not silently "
+                "treat stockstats calculations from unadjusted bars as "
+                "corporate-action-adjusted total-return indicators."
+            )
+
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
