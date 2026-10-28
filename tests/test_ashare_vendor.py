@@ -145,3 +145,35 @@ def test_identity_falls_back_to_official_cninfo_name(monkeypatch):
         ),
     )
     assert ashare.company_identity("600519.SH") == {"company_name": "贵州茅台"}
+
+
+def test_dividend_evidence_uses_official_implementation(monkeypatch):
+    df = pd.DataFrame([
+        {"公告标题": "2026年半年度利润分配方案", "公告时间": pd.Timestamp("2026-08-15"),
+         "公告链接": "proposal"},
+        {"公告标题": "2026年半年度权益分派实施公告", "公告时间": pd.Timestamp("2026-09-17"),
+         "公告链接": "implementation"},
+    ])
+    monkeypatch.setattr(ashare, "_announcement_frame", lambda *args: df)
+    monkeypatch.setattr(
+        ashare, "_pdf_text_from_announcement",
+        lambda url: "每10股派发现金股利人民币2.49元，合计派发48.32亿元。"
+        if url == "implementation" else "没有分红数据"
+    )
+    result = ashare._dividend_disclosure_evidence("000001.SZ", "2026-09-30")
+    assert "2.49元" in result
+    assert "48.32亿元" in result
+    assert "implementation" in result
+    assert "future" not in result
+
+
+def test_fundamentals_includes_dividend_primary_source(monkeypatch):
+    monkeypatch.setattr(ashare, "company_identity", lambda ticker: {"company_name": "平安银行"})
+    monkeypatch.setattr(ashare, "_statement", lambda *args: "verified financial statement")
+    monkeypatch.setattr(
+        ashare, "_dividend_disclosure_evidence",
+        lambda *args: "Official: every 10 shares 2.49 CNY; total 48.32 billion CNY",
+    )
+    result = ashare.get_fundamentals("000001.SZ", "2026-09-30")
+    assert "2.49 CNY" in result
+    assert result.count("verified financial statement") == 2
