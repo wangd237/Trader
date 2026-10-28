@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 
 import pandas as pd
 
@@ -179,17 +180,39 @@ def get_indicators(
 
 
 def company_identity(symbol: str) -> dict[str, str]:
-    """Best-effort current identity lookup; no unverified valuation numbers."""
+    """Find current identity; official CNINFO name is the backup for Eastmoney failures."""
     code, _ = _code(symbol)
-    df = _call("stock_individual_info_em",symbol=code, timeout=15)
-    _unavailable(df, symbol, "No company profile")
-    pairs = dict(zip(df["item"], df["value"], strict=True))
-    identity = {}
-    for source, target in (("股票简称", "company_name"), ("行业", "industry")):
-        value = pairs.get(source)
-        if pd.notna(value) and str(value).strip():
-            identity[target] = str(value).strip()
-    return identity
+    try:
+        df = _call("stock_individual_info_em", symbol=code, timeout=15)
+        if df is not None and not df.empty and {"item", "value"}.issubset(df.columns):
+            pairs = dict(zip(df["item"], df["value"], strict=True))
+            identity = {}
+            for source, target in (("股票简称", "company_name"), ("行业", "industry")):
+                value = pairs.get(source)
+                if pd.notna(value) and str(value).strip():
+                    identity[target] = str(value).strip()
+            if identity.get("company_name"):
+                return identity
+    except (NoMarketDataError, VendorUnavailableError, KeyError, ValueError):
+        pass
+
+    # Fallback uses the same official announcement index validated in Stage A.
+    today = date.today()
+    df = _call(
+        "stock_zh_a_disclosure_report_cninfo",
+        symbol=code,
+        start_date=(today - timedelta(days=365)).strftime("%Y%m%d"),
+        end_date=today.strftime("%Y%m%d"),
+    )
+    if df is None or df.empty or not {"代码", "简称"}.issubset(df.columns):
+        raise NoMarketDataError(symbol, symbol, "No verified company identity from CNINFO")
+    rows = df[df["代码"].astype(str).eq(code)]
+    if rows.empty:
+        raise NoMarketDataError(symbol, symbol, "Company code missing from CNINFO")
+    name = rows.iloc[0]["简称"]
+    if pd.isna(name) or not str(name).strip():
+        raise NoMarketDataError(symbol, symbol, "Empty company name in CNINFO")
+    return {"company_name": str(name).strip()}
 
 
 def get_fundamentals(ticker: str, curr_date: str) -> str:
