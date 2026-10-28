@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import date as calendar_date, timedelta
 
 import pandas as pd
 
@@ -197,7 +197,7 @@ def company_identity(symbol: str) -> dict[str, str]:
         pass
 
     # Fallback uses the same official announcement index validated in Stage A.
-    today = date.today()
+    today = calendar_date.today()
     df = _call(
         "stock_zh_a_disclosure_report_cninfo",
         symbol=code,
