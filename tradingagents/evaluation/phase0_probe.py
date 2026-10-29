@@ -163,6 +163,12 @@ class Phase0TraceProbe(BaseCallbackHandler):
                     namespace=ns,
                     node=str(node),
                     state_fields=sorted(update) if isinstance(update, dict) else [],
+                    update_type=type(update).__name__,
+                    message_types=(
+                        [type(m).__name__ for m in update.get("messages", ())]
+                        if isinstance(update, dict) and isinstance(update.get("messages"), list)
+                        else []
+                    ),
                     tool_results=results,
                 )
 
@@ -218,6 +224,24 @@ class Phase0TraceProbe(BaseCallbackHandler):
             "graph_pairing": _pairing(graph_starts, graph_ends),
             "llm_pairing": callback_pairing("llm"),
             "tool_pairing": callback_pairing("tool"),
+            "tool_node_diagnostics": [
+                {
+                    "namespace": "/".join(e.get("namespace") or []),
+                    "update_type": e.get("update_type"),
+                    "state_fields": e.get("state_fields"),
+                    "message_types": e.get("message_types"),
+                }
+                for e in self.events
+                if e["kind"] == "state_update" and e.get("node") == "tools"
+            ],
+            "llm_scope_diagnostics": [
+                {
+                    "kind": e["kind"],
+                    "scope": _scope(e.get("checkpoint_ns")),
+                    "graph_node": e.get("graph_node"),
+                }
+                for e in self.events if e["kind"] in ("llm_start", "llm_end")
+            ],
             "tool_call_linkage": {
                 "requested": requests.total(),
                 "result_messages": results.total(),
