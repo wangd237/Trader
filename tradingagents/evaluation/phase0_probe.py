@@ -35,7 +35,10 @@ def _pairing(starts: list[Any], ends: list[Any]) -> dict[str, int]:
         "missing_start": sum((finished - started).values()),
         "duplicate_start": sum(max(0, n - 1) for n in started.values()),
         "duplicate_end": sum(max(0, n - 1) for n in finished.values()),
-        "missing_id": sum(value is None for value in [*starts, *ends]),
+        "missing_id": sum(
+            value is None or (isinstance(value, tuple) and value[-1] is None)
+            for value in [*starts, *ends]
+        ),
     }
 
 
