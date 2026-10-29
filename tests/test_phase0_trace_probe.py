@@ -7,8 +7,12 @@ from uuid import uuid4
 
 import pytest
 
+from tests import test_graph_end_to_end as e2e
 from tests.test_graph_end_to_end import TRADE_DATE, ScriptedModel, _graph
 from tradingagents.evaluation.phase0_probe import Phase0TraceProbe
+
+# Reuse the existing offline provider fixture; imported fixtures need a module-level name.
+offline = e2e.offline
 
 
 @pytest.mark.unit
