@@ -34,6 +34,9 @@ jobs:
           pip install -e ".[dev]"
       - name: Run test suite
         run: pytest -q
+      - name: Phase 0 trajectory coverage evidence (Python 3.11)
+        if: matrix.python-version == '3.11'
+        run: pytest -q -s tests/test_phase0_trace_probe.py
 
   smoke-install:
     name: clean-install smoke
