@@ -1,6 +1,6 @@
 # Trader
 
-## 项目简介（Overview）
+## 项目简介
 
 **Trader** 是基于 **LangGraph** 构建的多智能体金融市场研究框架，创建不同角色的 Agent 分工完成市场研究、多空辩论、交易计划与风险评估，最终生成研究结论和结构化报告。
 
@@ -9,7 +9,7 @@
 
 项目以**研究分析与辅助决策**为目标，不执行真实账户交易。
 
-## 核心功能（Features）
+## 核心功能
 
 - **多 Agent 协同研究**：市场、基本面、新闻、情绪分析师分工研究；多空研究员辩论，随后由交易员、风险团队和投资组合经理形成最终结论。
 - **LangGraph 工作流**：支持分析师并行执行、独立工具调用子图、共享状态传递以及研究和风险阶段的条件路由。
@@ -19,7 +19,7 @@
 - **报告与执行恢复**：输出分阶段 Markdown 报告、完整 HTML 报告及日志；支持历史决策记忆和可选的检查点恢复。
 - **历史回测与持仓分析**：支持多个标的/日期的历史决策评估，可传入持仓文件供交易和风险 Agent 参考。
 
-## 项目架构（Architecture）
+## 项目架构
 
 ### Agent 工作流程
 
@@ -79,7 +79,7 @@ LLM Clients          Dataflows     Memory
        决策 / 报告 / 日志
 ```
 
-## 快速开始（Quick Start）
+## 快速开始
 
 **环境要求**：Python 3.11+，Git，以及可访问的 LLM API。以下以 Windows PowerShell 和 Conda 为例。
 
@@ -122,7 +122,7 @@ trader
 
 CLI 会引导选择标的、分析日期、分析师和研究深度。运行过程中会展示 Agent 执行进展；完成后可保存研究报告。
 
-## 使用方式（Usage）
+## 使用方式
 
 **分析美股（非交互）**
 
@@ -159,7 +159,7 @@ trader backtest NVDA --start 2026-09-01 --end 2026-09-15 --every 7
 
 **输出位置**：默认报告位于 `<TRADINGAGENTS_RESULTS_DIR>/reports/<Ticker>_<时间戳>/`，包含 `complete_report.md`、`complete_report.html` 和各 Agent 的分阶段报告。CLI 运行日志另存于 `<TRADINGAGENTS_RESULTS_DIR>/<Ticker>/<分析日期>/`。
 
-## 项目结构（Project Structure）
+## 项目结构
 
 ```text
 Trader/
