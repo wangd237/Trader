@@ -46,6 +46,23 @@ def _tool_key(scope: str | None, tool_call: dict[str, Any]) -> tuple[Any, ...]:
     return scope, _id(tool_call.get("tool_call_id")), tool_call.get("name")
 
 
+def _tool_result_refs(value: Any) -> list[dict[str, Any]]:
+    """Extract only ToolMessage correlation IDs; never retain response bodies."""
+    if isinstance(value, dict):
+        messages = value.get("messages") or []
+    elif isinstance(value, (tuple, list)):
+        messages = value
+    else:
+        messages = []
+    if not isinstance(messages, (tuple, list)):
+        messages = [messages]
+    return [
+        {"name": getattr(msg, "name", None), "tool_call_id": _id(msg.tool_call_id)}
+        for msg in messages
+        if getattr(msg, "tool_call_id", None) is not None
+    ]
+
+
 def _context(kwargs: dict[str, Any]) -> dict[str, Any]:
     metadata = kwargs.get("metadata") or {}
     if not isinstance(metadata, dict):
@@ -83,6 +100,19 @@ class Phase0TraceProbe(BaseCallbackHandler):
     def on_llm_start(self, serialized, prompts, **kwargs) -> None:
         self._emit("llm_start", **_context(kwargs))
 
+    def _llm_context(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        context = _context(kwargs)
+        if not context["checkpoint_ns"]:
+            # on_llm_end does not necessarily repeat start-side metadata.
+            # Rejoin via callback run_id, not node name or event timestamp.
+            with self._lock:
+                for event in reversed(self.events):
+                    if event["kind"] == "llm_start" and event["run_id"] == context["run_id"]:
+                        context["checkpoint_ns"] = event.get("checkpoint_ns")
+                        context["graph_node"] = event.get("graph_node")
+                        break
+        return context
+
     def on_llm_end(self, response, **kwargs) -> None:
         tool_requests = []
         for generations in getattr(response, "generations", ()):
@@ -92,10 +122,10 @@ class Phase0TraceProbe(BaseCallbackHandler):
                     tool_requests.append(
                         {"name": call.get("name"), "tool_call_id": call.get("id")}
                     )
-        self._emit("llm_end", tool_requests=tool_requests, **_context(kwargs))
+        self._emit("llm_end", tool_requests=tool_requests, **self._llm_context(kwargs))
 
     def on_llm_error(self, error, **kwargs) -> None:
-        self._emit("llm_error", error_type=type(error).__name__, **_context(kwargs))
+        self._emit("llm_error", error_type=type(error).__name__, **self._llm_context(kwargs))
 
     def on_tool_start(self, serialized, input_str, **kwargs) -> None:
         # Never persist input_str: it may contain market data or credentials.
@@ -141,23 +171,26 @@ class Phase0TraceProbe(BaseCallbackHandler):
                     if payload.get("error") is not None
                     else None
                 ),
+                task_result_type=type(payload.get("result")).__name__ if kind == "graph_task_end" else None,
+                task_result_fields=(
+                    sorted(payload["result"])
+                    if kind == "graph_task_end" and isinstance(payload.get("result"), dict)
+                    else []
+                ),
+                tool_results=(
+                    _tool_result_refs(payload.get("result"))
+                    if kind == "graph_task_end" and payload.get("name") == "tools"
+                    else []
+                ),
             )
         elif mode == "updates":
             if not isinstance(payload, dict):
                 self._emit("unrecognized_graph_event", namespace=ns, stream_mode=mode)
                 return
             for node, update in payload.items():
-                # ToolNode publishes ToolMessage(s) inside its State update.
-                # Retain ONLY name + call ID for model-request/result linkage.
-                results = []
-                if str(node) == "tools" and isinstance(update, dict):
-                    for msg in update.get("messages", ()):
-                        call_id = _id(getattr(msg, "tool_call_id", None))
-                        if call_id is not None:
-                            results.append({
-                                "name": getattr(msg, "name", None),
-                                "tool_call_id": call_id,
-                            })
+                # Some LangGraph versions emit a None update after a tool
+                # task. Keep both event channels, without assuming coverage.
+                results = _tool_result_refs(update) if str(node) == "tools" else []
                 self._emit(
                     "state_update",
                     namespace=ns,
@@ -204,10 +237,17 @@ class Phase0TraceProbe(BaseCallbackHandler):
             for call in e.get("tool_requests", ())
         )
         results = Counter(
-            _tool_key(e["namespace"][0] if e["namespace"] else None, result)
-            for e in self.events if e["kind"] == "state_update"
+            _tool_key(e["namespace"][0] if e.get("namespace") else None, result)
+            for e in self.events if e["kind"] == "graph_task_end"
             for result in e.get("tool_results", ())
         )
+        # Prefer task completions; updates can duplicate the same evidence.
+        if not results:
+            results = Counter(
+                _tool_key(e["namespace"][0] if e.get("namespace") else None, result)
+                for e in self.events if e["kind"] == "state_update"
+                for result in e.get("tool_results", ())
+            )
         matched = requests & results
         return {
             "counts": dict(sorted(counts.items())),
@@ -224,6 +264,16 @@ class Phase0TraceProbe(BaseCallbackHandler):
             "graph_pairing": _pairing(graph_starts, graph_ends),
             "llm_pairing": callback_pairing("llm"),
             "tool_pairing": callback_pairing("tool"),
+            "tool_task_diagnostics": [
+                {
+                    "namespace": "/".join(e.get("namespace") or []),
+                    "task_result_type": e.get("task_result_type"),
+                    "task_result_fields": e.get("task_result_fields"),
+                    "tool_result_refs": e.get("tool_results"),
+                }
+                for e in self.events
+                if e["kind"] == "graph_task_end" and e.get("node") == "tools"
+            ],
             "tool_node_diagnostics": [
                 {
                     "namespace": "/".join(e.get("namespace") or []),
