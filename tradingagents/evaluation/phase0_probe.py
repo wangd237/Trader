@@ -20,6 +20,29 @@ def _id(value: Any) -> str | None:
     return str(value) if value is not None else None
 
 
+def _scope(checkpoint_ns: Any) -> str | None:
+    """Compare nested callback namespaces to graph subgraph namespaces."""
+    if not isinstance(checkpoint_ns, str) or not checkpoint_ns:
+        return None
+    return checkpoint_ns.split("|", 1)[0]
+
+
+def _pairing(starts: list[Any], ends: list[Any]) -> dict[str, int]:
+    """Count missing/duplicate spans in BOTH directions, not just dangling starts."""
+    started, finished = Counter(starts), Counter(ends)
+    return {
+        "missing_end": sum((started - finished).values()),
+        "missing_start": sum((finished - started).values()),
+        "duplicate_start": sum(max(0, n - 1) for n in started.values()),
+        "duplicate_end": sum(max(0, n - 1) for n in finished.values()),
+        "missing_id": sum(value is None for value in [*starts, *ends]),
+    }
+
+
+def _tool_key(scope: str | None, tool_call: dict[str, Any]) -> tuple[Any, ...]:
+    return scope, _id(tool_call.get("tool_call_id")), tool_call.get("name")
+
+
 def _context(kwargs: dict[str, Any]) -> dict[str, Any]:
     metadata = kwargs.get("metadata") or {}
     if not isinstance(metadata, dict):
@@ -121,42 +144,88 @@ class Phase0TraceProbe(BaseCallbackHandler):
                 self._emit("unrecognized_graph_event", namespace=ns, stream_mode=mode)
                 return
             for node, update in payload.items():
+                # ToolNode publishes ToolMessage(s) inside its State update.
+                # Retain ONLY name + call ID for model-request/result linkage.
+                results = []
+                if str(node) == "tools" and isinstance(update, dict):
+                    for msg in update.get("messages", ()):
+                        call_id = _id(getattr(msg, "tool_call_id", None))
+                        if call_id is not None:
+                            results.append({
+                                "name": getattr(msg, "name", None),
+                                "tool_call_id": call_id,
+                            })
                 self._emit(
                     "state_update",
                     namespace=ns,
                     node=str(node),
                     state_fields=sorted(update) if isinstance(update, dict) else [],
+                    tool_results=results,
                 )
 
     def coverage(self) -> dict[str, Any]:
-        """Report observed evidence and known gaps, never infer missing events."""
+        """Summarize full-graph, bidirectional lifecycle and ToolCall evidence."""
         counts = Counter(e["kind"] for e in self.events)
         cb = [e for e in self.events if e["kind"].startswith(("llm_", "tool_"))]
-        tool_starts = {e["run_id"] for e in self.events if e["kind"] == "tool_start"}
-        tool_ends = {
-            e["run_id"] for e in self.events if e["kind"] in ("tool_end", "tool_error")
-        }
-        llm_starts = {e["run_id"] for e in self.events if e["kind"] == "llm_start"}
-        llm_ends = {
-            e["run_id"] for e in self.events if e["kind"] in ("llm_end", "llm_error")
-        }
+
+        graph_events = [e for e in self.events if e["kind"].startswith("graph_task_")]
+        graph_starts = [
+            (tuple(e["namespace"]), e["task_id"])
+            for e in graph_events if e["kind"] == "graph_task_start"
+        ]
+        graph_ends = [
+            (tuple(e["namespace"]), e["task_id"])
+            for e in graph_events if e["kind"] == "graph_task_end"
+        ]
+
+        def callback_pairing(prefix: str) -> dict[str, int]:
+            return _pairing(
+                [e["run_id"] for e in self.events if e["kind"] == prefix + "_start"],
+                [
+                    e["run_id"] for e in self.events
+                    if e["kind"] in (prefix + "_end", prefix + "_error")
+                ],
+            )
+
+        # Distinguish data about an actual ToolNode result from the model's
+        # intent. IDs may repeat across analyst subgraphs; the scope matters.
+        requests = Counter(
+            _tool_key(_scope(e.get("checkpoint_ns")), call)
+            for e in self.events if e["kind"] == "llm_end"
+            for call in e.get("tool_requests", ())
+        )
+        results = Counter(
+            _tool_key(e["namespace"][0] if e["namespace"] else None, result)
+            for e in self.events if e["kind"] == "state_update"
+            for result in e.get("tool_results", ())
+        )
+        matched = requests & results
         return {
             "counts": dict(sorted(counts.items())),
-            "subgraph_namespaces": sorted(
-                {"/".join(e["namespace"]) for e in self.events if e.get("namespace")}
-            ),
+            "top_level_completed_nodes": sorted({
+                e["node"] for e in graph_events
+                if e["kind"] == "graph_task_end"
+                and not e["namespace"] and e.get("node")
+            }),
+            "subgraph_namespaces": sorted({
+                "/".join(e["namespace"]) for e in self.events if e.get("namespace")
+            }),
             "callback_parent_links": sum(e.get("parent_run_id") is not None for e in cb),
             "callback_graph_node_metadata": sum(e.get("graph_node") is not None for e in cb),
-            "llm_unmatched_start": len(llm_starts - llm_ends),
-            "tool_unmatched_start": len(tool_starts - tool_ends),
-            "tool_end_with_tool_call_id": sum(
-                bool(e.get("tool_call_id"))
-                for e in self.events
-                if e["kind"] == "tool_end"
-            ),
+            "graph_pairing": _pairing(graph_starts, graph_ends),
+            "llm_pairing": callback_pairing("llm"),
+            "tool_pairing": callback_pairing("tool"),
+            "tool_call_linkage": {
+                "requested": requests.total(),
+                "result_messages": results.total(),
+                "matched": matched.total(),
+                "unmatched_requests": (requests - results).total(),
+                "unmatched_results": (results - requests).total(),
+                "unscoped_requests": sum(n for (scope, _, _), n in requests.items() if not scope),
+                "unscoped_results": sum(n for (scope, _, _), n in results.items() if not scope),
+            },
             "limitations": [
                 "Graph task IDs and callback run IDs are different identifiers.",
-                "Callback metadata may not uniquely map an agent subgraph to an LLM span.",
                 "InjectedState effective arguments are not exposed by this probe.",
                 "Direct provider access inside Sentiment Analyst is not a ToolNode callback.",
                 "Completed tool callbacks do not establish data validity.",
