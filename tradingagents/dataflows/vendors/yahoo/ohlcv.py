@@ -153,6 +153,11 @@ def load_ohlcv(symbol: str, as_of_date: str, fill_gaps: bool = True) -> pd.DataF
     读取时删除晚于 as_of_date 的记录，防止回测提前看到未来价格。
     ``fill_gaps`` 会用前值填补缺口，以维持指标计算所需的连续序列；
     设为 False 时返回供应商原始值，缺失记录仍保持为空。"""
+    # Frozen evaluation reads the pinned local CSV, never the vendor/cache.
+    if get_config().get("benchmark_ohlcv_csv"):
+        from tradingagents.evaluation.frozen_market import load_frozen_ohlcv
+        return load_frozen_ohlcv(symbol, as_of_date, fill_gaps=fill_gaps)
+
     # 先将券商/外汇代码转换为 Yahoo 规则（如 XAUUSD+ → GC=F），
     # 再拒绝可能通过缓存文件名逃逸目录的值（如 ``../../tmp/x``）。
     canonical = normalize_symbol(symbol)

@@ -221,3 +221,7 @@ __marimo__/
 # Enterprise env file (secrets) and generated run reports
 .env.enterprise
 reports/
+
+# Local benchmark traces and uncommitted market-data exports
+results/trajectory_baseline/
+benchmarks/trajectory/local_data/

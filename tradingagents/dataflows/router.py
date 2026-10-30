@@ -206,6 +206,11 @@ def no_data_available(error: NoMarketDataError) -> str:
 
 def route_to_vendor(method: str, *args, **kwargs):
     """按配置将方法调用路由到合适的数据提供商实现，并支持顺序回退。"""
+    # Benchmark mode is an explicit, fail-closed data boundary. It cannot
+    # silently contact Yahoo or another vendor on a missing fixture.
+    if get_config().get("benchmark_ohlcv_csv"):
+        from tradingagents.evaluation.frozen_market import route_frozen_market
+        return route_frozen_market(method, *args, **kwargs)
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]

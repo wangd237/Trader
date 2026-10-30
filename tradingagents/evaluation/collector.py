@@ -68,6 +68,7 @@ class TrajectoryCollector(Phase0TraceProbe):
         max_tool_rounds: int,
         max_debate_rounds: int = 1,
         max_risk_discuss_rounds: int = 1,
+        fixture_sha256: str | None = None,
     ) -> None:
         super().__init__()
         self.evaluation_run_id = uuid4().hex
@@ -89,6 +90,7 @@ class TrajectoryCollector(Phase0TraceProbe):
             max_debate_rounds=max_debate_rounds,
             max_risk_discuss_rounds=max_risk_discuss_rounds,
             version=tradingagents.__version__,
+            frozen_fixture_sha256=fixture_sha256,
         )
 
     def on_llm_end(self, response, **kwargs: Any) -> None:
@@ -222,6 +224,7 @@ def collect_trajectory(
         max_tool_rounds=graph.config["max_tool_rounds"],
         max_debate_rounds=graph.config.get("max_debate_rounds", 1),
         max_risk_discuss_rounds=graph.config.get("max_risk_discuss_rounds", 1),
+        fixture_sha256=graph.config.get("benchmark_ohlcv_sha256"),
     )
     final_state = None
     error = None
