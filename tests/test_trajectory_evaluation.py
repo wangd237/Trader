@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -56,6 +59,14 @@ def test_collector_offline_full_graph_produces_reproducible_evaluation(
     assert all(row["run_id"] == report["run_id"] for row in disk_rows)
     assert not any("raw_args" in row or "messages" in row for row in disk_rows)
     assert graph.memory_log.load_entries() == [], "diagnostic runner must not record decisions"
+
+    # Replay CLI must work from an actual Python process without any LLM.
+    cli = Path(__file__).resolve().parents[1] / "scripts" / "eval_trajectory.py"
+    replay = subprocess.run(
+        [sys.executable, str(cli), "--strict", str(run_dir / "trace.jsonl")],
+        check=True, capture_output=True, text=True,
+    )
+    assert "evaluated=1 failed=0" in replay.stdout
 
 
 @pytest.mark.unit
