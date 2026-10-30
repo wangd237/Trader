@@ -14,47 +14,137 @@ def _check(status: str, details: list[str], event_ids: list[str]) -> dict[str, A
     return {"status": status, "details": details, "event_ids": sorted(set(event_ids))}
 
 
-def _node_order(events: list[dict[str, Any]], selected: list[str]) -> dict[str, Any]:
+def _node_order(
+    events: list[dict[str, Any]],
+    selected: list[str],
+    debate_rounds: int,
+    risk_rounds: int,
+) -> dict[str, Any]:
+    """Check the configured dynamic graph path, not a fixed list of roles."""
     completed = [
         e for e in events
         if e["kind"] == "graph_task_end" and not e.get("namespace") and e.get("node")
     ]
     positions: dict[str, list[int]] = defaultdict(list)
-    for i, e in enumerate(completed):
-        positions[e["node"]].append(i)
+    for i, event in enumerate(completed):
+        positions[event["node"]].append(i)
+
     analysts = [ANALYST_NODE_SPECS[key].agent_node for key in selected]
-    requirements = analysts + [
-        "Memory Log", "Bull Researcher", "Bear Researcher", "Research Manager",
-        "Trader", "Aggressive Analyst", "Conservative Analyst",
-        "Neutral Analyst", "Portfolio Manager",
+    debate = (
+        ["Bull Researcher", "Bear Researcher"] * debate_rounds
+        if debate_rounds > 0 else ["Bull Researcher"]
+    )
+    risk = (
+        ["Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"] * risk_rounds
+        if risk_rounds > 0 else ["Aggressive Analyst"]
+    )
+    expected = Counter(
+        [*analysts, "Memory Log", *debate, "Research Manager", "Trader",
+         *risk, "Portfolio Manager"]
+    )
+    issues = [
+        f"node_count:{node}:expected={required}:observed={len(positions[node])}"
+        for node, required in expected.items()
+        if len(positions[node]) != required
     ]
-    missing = [node for node in requirements if node not in positions]
-    violations = []
-    if not missing:
-        checkpoints = [
-            (max(positions[n][-1] for n in analysts + ["Memory Log"]), positions["Bull Researcher"][0], "analyst_barrier"),
+    # An out-of-route researcher or risk agent is also an error.
+    conditional = {
+        "Bull Researcher", "Bear Researcher",
+        "Aggressive Analyst", "Conservative Analyst", "Neutral Analyst",
+    }
+    issues.extend(
+        f"unexpected_node:{node}"
+        for node in conditional - expected.keys() if positions[node]
+    )
+    if not issues:
+        steps = [e["node"] for e in completed]
+        observed_debate = [name for name in steps if name in {"Bull Researcher", "Bear Researcher"}]
+        observed_risk = [
+            name for name in steps
+            if name in {"Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"}
+        ]
+        if observed_debate != debate:
+            issues.append("debate_sequence")
+        if observed_risk != risk:
+            issues.append("risk_sequence")
+        constraints = [
             (
-                max(positions[n][-1] for n in ("Bull Researcher", "Bear Researcher")),
-                positions["Research Manager"][0],
-                "research_debate",
+                max(positions[n][-1] for n in [*analysts, "Memory Log"]),
+                positions["Bull Researcher"][0], "analyst_barrier",
             ),
-            (positions["Research Manager"][-1], positions["Trader"][0], "research_to_trader"),
-            (positions["Trader"][-1], positions["Aggressive Analyst"][0], "trader_to_risk"),
             (
-                max(positions[n][-1] for n in (
-                    "Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"
-                )),
-                positions["Portfolio Manager"][0],
-                "risk_to_manager",
+                max(positions[n][-1] for n in {"Bull Researcher", "Bear Researcher"} if positions[n]),
+                positions["Research Manager"][0], "research_to_manager",
+            ),
+            (
+                positions["Research Manager"][-1], positions["Trader"][0],
+                "research_to_trader",
+            ),
+            (
+                positions["Trader"][-1], positions["Aggressive Analyst"][0],
+                "trader_to_risk",
+            ),
+            (
+                max(positions[n][-1] for n in conditional
+                    if n in {"Aggressive Analyst", "Conservative Analyst", "Neutral Analyst"}
+                    and positions[n]),
+                positions["Portfolio Manager"][0], "risk_to_manager",
             ),
         ]
-        violations = [label for before, after, label in checkpoints if before >= after]
-    bad = bool(missing or violations)
-    evidence = [e["event_id"] for e in completed]
+        issues.extend(label for before, after, label in constraints if before >= after)
     return _check(
-        "fail" if bad else "pass",
-        [*(f"missing_node:{name}" for name in missing), *(f"order:{x}" for x in violations)],
-        evidence if bad else [],
+        "fail" if issues else "pass",
+        issues,
+        [e["event_id"] for e in completed] if issues else [],
+    )
+
+
+def _evidence_completeness(
+    events: list[dict[str, Any]], finished: bool, observed: dict[str, Any],
+) -> dict[str, Any]:
+    """Incomplete observation must never be interpreted as a passing evaluation."""
+    if not finished:
+        return _check("not_applicable", ["graph_not_completed"], [])
+    counts = observed["counts"]
+    issues = [
+        f"missing_evidence:{kind}"
+        for kind in ("graph_task_start", "graph_task_end", "state_update", "llm_start", "llm_end")
+        if not counts.get(kind)
+    ]
+    # Model tool requests must have corresponding model-intent evidence. Match
+    # by scope, tool name and ID; event ordering/timestamps are not reliable.
+    requested = Counter(
+        (
+            _scope(e.get("checkpoint_ns")),
+            call.get("name"),
+            str(call.get("tool_call_id")) if call.get("tool_call_id") is not None else None,
+            e.get("run_id"),
+        )
+        for e in events if e["kind"] == "llm_end"
+        for call in e.get("tool_requests", [])
+    )
+    recorded = Counter(
+        (e.get("scope"), e.get("tool_name"), e.get("tool_call_id"), e.get("model_run_id"))
+        for e in events if e["kind"] == "tool_intent" and not e.get("malformed")
+    )
+    if requested - recorded:
+        issues.append(f"unobserved_model_tool_intents:{(requested - recorded).total()}")
+    if recorded - requested:
+        issues.append(f"orphan_model_tool_intents:{(recorded - requested).total()}")
+    actual = observed["tool_call_linkage"]
+    if actual["requested"] and not counts.get("tool_start"):
+        issues.append("missing_evidence:tool_callbacks")
+    if actual["requested"] and counts.get("tool_end", 0) + counts.get("tool_error", 0) < actual["requested"]:
+        issues.append("missing_evidence:tool_completion_callbacks")
+    return _check(
+        "fail" if issues else "pass",
+        issues,
+        [
+            e["event_id"] for e in events
+            if e["kind"] in ("llm_end", "tool_intent") and (
+                e.get("tool_requests") or e["kind"] == "tool_intent"
+            )
+        ] if issues else [],
     )
 
 
@@ -164,6 +254,9 @@ def evaluate_events(events: list[dict[str, Any]]) -> dict[str, Any]:
         f"{e['event_id']}:{','.join(e['date_errors'])}" for e in bad_dates
     )
     rules = {
+        "evidence_completeness": _evidence_completeness(
+            events, bool(end.get("finished")), observed,
+        ),
         "task_completion": _check(
             "pass" if task_complete else "fail", task_details, [end["event_id"]]
         ),
@@ -183,7 +276,11 @@ def evaluate_events(events: list[dict[str, Any]]) -> dict[str, Any]:
         ),
         "tool_round_budget": _budget(events, int(start["max_tool_rounds"])),
         "graph_route": (
-            _node_order(events, list(start["selected_analysts"]))
+            _node_order(
+                events, list(start["selected_analysts"]),
+                int(start.get("max_debate_rounds", 1)),
+                int(start.get("max_risk_discuss_rounds", 1)),
+            )
             if end.get("finished")
             else _check("not_applicable", ["graph_interrupted"], [])
         ),

@@ -66,6 +66,8 @@ class TrajectoryCollector(Phase0TraceProbe):
         trade_date: str,
         selected_analysts: tuple[str, ...],
         max_tool_rounds: int,
+        max_debate_rounds: int = 1,
+        max_risk_discuss_rounds: int = 1,
     ) -> None:
         super().__init__()
         self.evaluation_run_id = uuid4().hex
@@ -84,6 +86,8 @@ class TrajectoryCollector(Phase0TraceProbe):
             trade_date=trade_date,
             selected_analysts=list(selected_analysts),
             max_tool_rounds=max_tool_rounds,
+            max_debate_rounds=max_debate_rounds,
+            max_risk_discuss_rounds=max_risk_discuss_rounds,
             version=tradingagents.__version__,
         )
 
@@ -130,7 +134,12 @@ class TrajectoryCollector(Phase0TraceProbe):
                         malformed=not valid_args,
                     )
 
-    def finish(self, final_state: dict[str, Any] | None, error: BaseException | None) -> None:
+    def finish(
+        self,
+        final_state: dict[str, Any] | None,
+        error: BaseException | None,
+        error_stage: str | None = None,
+    ) -> None:
         state = final_state or {}
         meta = next(e for e in self.events if e["kind"] == "evaluation_start")
         reports = {
@@ -147,6 +156,7 @@ class TrajectoryCollector(Phase0TraceProbe):
             "evaluation_end",
             finished=error is None,
             error_type=type(error).__name__ if error else None,
+            error_stage=error_stage,
             report_presence=reports,
             rating_valid=state.get("final_rating") in _RATINGS,
         )
@@ -210,20 +220,28 @@ def collect_trajectory(
         trade_date=trade_date,
         selected_analysts=tuple(graph.selected_analysts),
         max_tool_rounds=graph.config["max_tool_rounds"],
+        max_debate_rounds=graph.config.get("max_debate_rounds", 1),
+        max_risk_discuss_rounds=graph.config.get("max_risk_discuss_rounds", 1),
     )
-    config = graph.propagator.get_graph_args(callbacks=[collector])["config"]
-    context = run_config_context(graph.config)
-    initial = graph.create_run_state(ticker, trade_date)
     final_state = None
     error = None
-    stream = context.run(
-        graph.graph.stream,
-        initial,
-        config=config,
-        stream_mode=["tasks", "updates", "values"],
-        subgraphs=True,
-    )
+    error_stage = None
+    stream = None
+    context = None
+    stage = "initialization"
     try:
+        config = graph.propagator.get_graph_args(callbacks=[collector])["config"]
+        context = run_config_context(graph.config)
+        initial = graph.create_run_state(ticker, trade_date)
+        stage = "stream_open"
+        stream = context.run(
+            graph.graph.stream,
+            initial,
+            config=config,
+            stream_mode=["tasks", "updates", "values"],
+            subgraphs=True,
+        )
+        stage = "execution"
         while (step := context.run(next, stream, None)) is not None:
             namespace, mode, payload = step
             if not namespace and mode == "values" and isinstance(payload, dict):
@@ -232,7 +250,14 @@ def collect_trajectory(
                 collector.record_graph_event(namespace, mode, payload)
     except Exception as exc:
         error = exc
+        error_stage = stage
     finally:
-        context.run(stream.close)
-    collector.finish(final_state, error)
+        if stream is not None and context is not None:
+            try:
+                context.run(stream.close)
+            except Exception as exc:
+                if error is None:
+                    error = exc
+                    error_stage = "stream_close"
+    collector.finish(final_state, error, error_stage)
     return collector.save(Path(output_dir) / collector.evaluation_run_id)
