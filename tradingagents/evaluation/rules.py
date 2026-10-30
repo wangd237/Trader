@@ -179,7 +179,7 @@ def evaluate_events(events: list[dict[str, Any]]) -> dict[str, Any]:
         "model_tool_intent": _check(
             "fail" if model_call_errors else ("pass" if intents else "not_applicable"),
             model_call_errors if model_call_errors else (["no_model_tool_intents"] if not intents else []),
-            [e["event_id"] for e in {*id(x): x for x in invalid + bad_dates}.values()],
+            sorted({e["event_id"] for e in invalid + bad_dates}),
         ),
         "tool_round_budget": _budget(events, int(start["max_tool_rounds"])),
         "graph_route": (
