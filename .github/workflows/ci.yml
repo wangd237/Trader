@@ -37,6 +37,9 @@ jobs:
       - name: Phase 0 trajectory coverage evidence (Python 3.11)
         if: matrix.python-version == '3.11'
         run: pytest -q -s tests/test_phase0_trace_probe.py
+      - name: Phase 1 deterministic trajectory evaluation evidence (Python 3.11)
+        if: matrix.python-version == '3.11'
+        run: pytest -q -s tests/test_trajectory_evaluation.py
 
   smoke-install:
     name: clean-install smoke
