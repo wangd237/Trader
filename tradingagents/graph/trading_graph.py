@@ -119,7 +119,13 @@ class TradingAgentsGraph:
         通过确定性的 yfinance 查询（带缓存、失败时不中断）构造上下文，
         让各 Agent 依据真实公司身份分析，避免仅从价格图中臆测公司（#814）。
         ``propagate()`` 和 CLI 都调用这里，保证不同入口都能向整个图传递标的身份。"""
-        identity = resolve_instrument_identity(ticker)
+        if self.config.get("benchmark_ohlcv_csv"):
+            # Avoid a live Yahoo company-profile request in frozen mode.
+            if ticker.upper() != str(self.config.get("benchmark_symbol", "")).upper():
+                raise ValueError("Frozen benchmark ticker differs from configured symbol")
+            identity = {"company_name": self.config.get("benchmark_company_name", "")}
+        else:
+            identity = resolve_instrument_identity(ticker)
         return build_instrument_context(ticker, asset_type, identity, trade_date)
 
     def _memory_as_of(self, trade_date) -> str | None:
