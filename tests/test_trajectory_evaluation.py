@@ -29,6 +29,12 @@ def test_collector_offline_full_graph_produces_reproducible_evaluation(
         case_id="offline_full_graph", attempt_id="1", output_dir=tmp_path / "eval",
     )
 
+    print("PHASE1_SUMMARY=" + json.dumps({
+        "status": report["status"],
+        "rules": {key: value["status"] for key, value in report["rules"].items()},
+        "metrics": report["metrics"],
+        "coverage": report["coverage"]["tool_call_linkage"],
+    }, ensure_ascii=False))
     assert report["status"] == "pass", report
     assert all(rule["status"] != "fail" for rule in report["rules"].values())
     assert report["rules"]["task_completion"]["status"] == "pass"
@@ -49,7 +55,7 @@ def test_collector_offline_full_graph_produces_reproducible_evaluation(
     ]
     assert all(row["run_id"] == report["run_id"] for row in disk_rows)
     assert not any("raw_args" in row or "messages" in row for row in disk_rows)
-    assert not (tmp_path / "log.md").exists(), "diagnostic runner must not record decisions"
+    assert graph.memory_log.load_entries() == [], "diagnostic runner must not record decisions"
 
 
 @pytest.mark.unit
