@@ -46,9 +46,12 @@ def _date_errors(args: dict[str, Any], trade_date: str) -> list[str]:
         dates[key] = parsed
         if parsed > cutoff:
             errors.append(f"{key}:after_trade_date")
-    if "start_date" in dates and "end_date" in dates:
-        if dates["start_date"] > dates["end_date"]:
-            errors.append("window:reversed")
+    if (
+        "start_date" in dates
+        and "end_date" in dates
+        and dates["start_date"] > dates["end_date"]
+    ):
+        errors.append("window:reversed")
     return errors
 
 
