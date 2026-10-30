@@ -7,7 +7,7 @@ from copy import deepcopy
 import pandas as pd
 import pytest
 
-from tests.test_graph_end_to_end import ScriptedModel, TRADE_DATE, _Client
+from tests.test_graph_end_to_end import TRADE_DATE, ScriptedModel, _Client
 from tradingagents.dataflows.config import run_config
 from tradingagents.dataflows.router import VENDOR_METHODS, route_to_vendor
 from tradingagents.default_config import DEFAULT_CONFIG
