@@ -3,8 +3,10 @@
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from tests.test_graph_end_to_end import offline
+from tests import test_graph_end_to_end as e2e
 from tradingagents.graph.tool_loop_guard import consecutive_identical_tool_rounds
+
+offline = e2e.offline
 
 
 def _round(name="get_stock_data", args=None, result="same", call_id="id-1"):
