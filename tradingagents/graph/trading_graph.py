@@ -96,6 +96,7 @@ class TradingAgentsGraph:
             self.deep_thinking_llm,
             self.conditional_logic,
             max_tool_rounds,
+            max_stagnant_tool_rounds=self.config.get("max_stagnant_tool_rounds", 3),
         )
 
         self.propagator = Propagator(
