@@ -3,8 +3,8 @@
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from tests.test_graph_end_to_end import offline
 from tradingagents.graph.tool_loop_guard import consecutive_identical_tool_rounds
-from tests.test_graph_end_to_end import offline as offline
 
 
 def _round(name="get_stock_data", args=None, result="same", call_id="id-1"):
