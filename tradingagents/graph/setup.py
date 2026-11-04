@@ -25,6 +25,7 @@ from tradingagents.agents.state import AgentState
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
+from .tool_loop_guard import consecutive_identical_tool_rounds
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def _tools_or_done(state) -> str:
     return "tools" if state["messages"][-1].tool_calls else END
 
 
-def _analyst_graph(spec, agent, max_tool_rounds: int):
+def _analyst_graph(spec, agent, max_tool_rounds: int, max_stagnant_tool_rounds: int = 3):
     """每名分析师使用独立子图执行模型和工具调用，并维护私有消息历史。
 
     子图只返回该分析师的报告，因此并行分析师不会写入同一个状态键，
@@ -71,12 +72,19 @@ def _analyst_graph(spec, agent, max_tool_rounds: int):
         return sum(1 for m in messages if getattr(m, "tool_calls", None))
 
     def more_or_wrap_up(state) -> str:
-        return "wrap_up" if rounds(state["messages"]) >= max_tool_rounds else "agent"
+        if rounds(state["messages"]) >= max_tool_rounds:
+            return "wrap_up"
+        if (max_stagnant_tool_rounds > 0 and
+                consecutive_identical_tool_rounds(state["messages"]) >= max_stagnant_tool_rounds):
+            logger.warning("%s repeated an identical tool round %d times; asking for its report",
+                           spec.agent_node, max_stagnant_tool_rounds)
+            return "wrap_up"
+        return "agent"
 
     def wrap_up(state):
         repeated = ", ".join(f"{name} x{n}" for name, n in Counter(calls(state["messages"])).most_common())
         logger.warning("%s used its %d tool rounds (%s); asking for its report",
-                       spec.agent_node, max_tool_rounds, repeated)
+                       spec.agent_node, rounds(state["messages"]), repeated)
         return agent({**state, "messages": [*state["messages"], HumanMessage(WRAP_UP)]})
 
     graph.add_node("tools", ToolNode(list(spec.tools)))
@@ -96,12 +104,16 @@ class GraphSetup:
         deep_thinking_llm: Any,
         conditional_logic: ConditionalLogic,
         max_tool_rounds: int,
+        max_stagnant_tool_rounds: int = 3,
     ):
         """使用必需的组件进行初始化。"""
         self.quick_thinking_llm = quick_thinking_llm
         self.deep_thinking_llm = deep_thinking_llm
         self.conditional_logic = conditional_logic
         self.max_tool_rounds = max_tool_rounds
+        if max_stagnant_tool_rounds < 0:
+            raise ValueError("max_stagnant_tool_rounds must be >= 0")
+        self.max_stagnant_tool_rounds = max_stagnant_tool_rounds
 
     def setup_graph(
         self, selected_analysts=("market", "social", "news", "fundamentals"), memory_node=None
@@ -143,7 +155,8 @@ class GraphSetup:
         # 4. 将每个分析师的子图添加到主图中
         for spec in plan.specs:
             workflow.add_node(spec.agent_node,
-                              _analyst_graph(spec, analyst_factories[spec.key](), self.max_tool_rounds))
+                              _analyst_graph(spec, analyst_factories[spec.key](), self.max_tool_rounds,
+                                             self.max_stagnant_tool_rounds))
 
         # 5. 将研究团队和交易团队的节点添加到主图中
         workflow.add_node("Bull Researcher", bull_researcher_node)
