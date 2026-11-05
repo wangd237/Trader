@@ -29,6 +29,14 @@ _FEEDS = (
     ("东方财富", "stock_info_global_em"),
     ("新浪财经", "stock_info_global_sina"),
 )
+# Tushare news is an archival, date-range query when the account has the
+# separate news entitlement; the AKShare feeds above are recent-only.
+_TUSHARE_ARCHIVES = (
+    ("第一财经", "yicai"),
+    ("财联社", "cls"),
+    ("东方财富", "eastmoney"),
+    ("新浪财经", "sina"),
+)
 
 
 def _cell(row, *keys: str) -> str:
@@ -83,22 +91,32 @@ def _normalise(df: pd.DataFrame, source: str, start: datetime, end: datetime) ->
 
 def _feed_items(start: datetime, end: datetime) -> list[dict]:
     items = []
-    # First Financial / Yicai is available from Tushare only for accounts
-    # that have purchased the news entitlement. Never silently claim access.
+    # Historical news is optional and requires explicit Tushare entitlement.
+    # Each source is queried for the requested window. Do not fill missing
+    # historical dates using current flash headlines.
     token = os.environ.get("TUSHARE_TOKEN", "").strip()
     if token:
         try:
             import tushare as ts
 
             client = ts.pro_api(token)
-            data = client.news(
-                src="yicai",
-                start_date=start.strftime("%Y-%m-%d %H:%M:%S"),
-                end_date=end.strftime("%Y-%m-%d %H:%M:%S"),
-            )
-            items.extend(_normalise(data, "第一财经 (Tushare)", start, end))
+            for name, source_id in _TUSHARE_ARCHIVES:
+                try:
+                    data = client.news(
+                        src=source_id,
+                        start_date=start.strftime("%Y-%m-%d %H:%M:%S"),
+                        end_date=end.strftime("%Y-%m-%d %H:%M:%S"),
+                    )
+                    items.extend(_normalise(data, f"{name} (Tushare)", start, end))
+                except Exception as exc:
+                    logger.warning(
+                        "%s/Tushare historical news unavailable: %s",
+                        name, type(exc).__name__,
+                    )
+        except ImportError:
+            logger.warning("Tushare archival news requested but tushare is not installed")
         except Exception as exc:
-            logger.warning("Yicai/Tushare news unavailable: %s", type(exc).__name__)
+            logger.warning("Tushare archival news client unavailable: %s", type(exc).__name__)
 
     try:
         import akshare as ak
