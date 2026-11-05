@@ -118,13 +118,13 @@ def cached_historical_tool_messages(
             continue
         ids = [call.get("id") for call in previous.tool_calls]
         if any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
-            continue
+            return None
         replies = messages[index + 1 : index + 1 + len(ids)]
         if len(replies) != len(ids) or not all(isinstance(r, ToolMessage) for r in replies):
-            continue
+            return None
         by_id = {reply.tool_call_id: reply for reply in replies}
         if len(by_id) != len(ids) or set(by_id) != set(ids):
-            continue
+            return None
         if any(
             getattr(by_id[i], "status", "success") != "success"
             or not isinstance(by_id[i].content, str)
@@ -134,7 +134,7 @@ def cached_historical_tool_messages(
             )
             for i in ids
         ):
-            continue
+            return None
         return [
             ToolMessage(
                 content=by_id[old_id].content,
