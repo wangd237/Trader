@@ -134,7 +134,22 @@ TRADINGAGENTS_RESULTS_DIR=./results
 python -c "from tradingagents.dataflows.vendors.hk import get_stock_data; print(get_stock_data('9988.HK','2026-10-20','2026-11-04')[:750])"
 ```
 
-**港股基本面限制：** 东财的港股财报接口能获取按报告期组织的数据，但并未在本项目中验证所有条目的实际公告日期，暂不接入历史回测报表工具，以避免把未来披露信息混入旧日期分析。港股公司公告、财报和个股新闻目前不应视为已完成的全链路覆盖；使用前请检查对应的 `DATA_UNAVAILABLE` 和真实来源。
+**港股官方公告与三大报表（按披露时间过滤）**
+
+对 `.HK` 股票，`get_news` 查询 HKEXnews 披露易的**官方公告标题、发布时间和原始 PDF 链接**；三个财报工具和 `get_fundamentals` 查询 AKShare 东方财富的港股长表科目，然后**仅对有对应报告期、并能核验官方披露时间的报表放行**。输入的股票代码会自动映射到港交所内部的 `stockId`，无需手工查表。
+
+为避免同日收盘前后时点混淆，财务报表的披露日期必须**严格早于**指定分析日；对无法确认报告期（包括官方 PDF 前两页无法定位日期）的财务数据返回 `NO_DATA_AVAILABLE`，不会根据 `REPORT_DATE` 猜测公告日。
+
+特别注意：东方财富接口提供的是**当前数据库的数值**，可能发生历史追溯修订；HKEX 原始 PDF 链接提供可核验的首次披露证据，但**并不能保证第三方数值是当时首次披露的原值**。输出保留该警示和计量单位不确定性。HKEXnews 的标题检索是网站使用的非正式接口，真实可用性还需在使用网络中验证。
+
+可不调用 LLM 分别测试：
+
+```powershell
+python -c "from tradingagents.agents.tools import get_news; print(get_news.func('9988.HK','2026-08-01','2026-11-04')[:1800])"
+python -c "from tradingagents.agents.tools import get_income_statement; print(get_income_statement.func('9988.HK','quarterly','2026-11-04')[:1800])"
+```
+
+
 
 **3. 启动**
 
