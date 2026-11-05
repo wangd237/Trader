@@ -1,6 +1,9 @@
 """Offline regression tests for domestic Hong Kong OHLCV and tool routing."""
 
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pandas as pd
@@ -107,3 +110,30 @@ def test_stale_hk_bars_rejected(monkeypatch, mock_hk_history):
 def test_bad_hk_ticker_rejected():
     with pytest.raises(ValueError, match="Hong Kong"):
         hk.get_stock_data("BABA", "2026-11-01", "2026-11-04")
+
+
+
+@pytest.mark.unit
+def test_hk_parallel_cold_cache_miss_creates_only_one_native_decoder(
+    monkeypatch, mock_hk_history,
+):
+    """LRU is internally synchronized but doesn't deduplicate in-flight misses."""
+    downloader = sys.modules["akshare"].stock_hk_daily
+
+    def slow_native_decoder(**kwargs):
+        time.sleep(0.06)
+        return downloader(**kwargs)
+
+    monkeypatch.setattr(sys.modules["akshare"], "stock_hk_daily", slow_native_decoder)
+    barrier = threading.Barrier(6)
+
+    def fetch():
+        barrier.wait(timeout=5)
+        return hk.load_ohlcv("9988.HK", "2026-11-04")
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(lambda _: fetch(), range(6)))
+
+    assert len(mock_hk_history) == 1, "native decoder must not see parallel cold-cache misses"
+    assert all(len(frame) == len(results[0]) for frame in results)
+    assert all(frame["Date"].max() == pd.Timestamp("2026-11-04") for frame in results)
