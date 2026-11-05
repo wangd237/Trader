@@ -72,7 +72,6 @@ def test_optional_us_vendor_is_available_when_explicitly_selected(mock_eastmoney
 @pytest.mark.unit
 def test_market_snapshot_uses_same_vendor(mock_eastmoney):
     from tradingagents.agents.tools import get_verified_market_snapshot
-
     from tradingagents.dataflows.config import run_config
 
     with run_config({"data_vendors": {"core_stock_apis": "eastmoney_us"}}):
