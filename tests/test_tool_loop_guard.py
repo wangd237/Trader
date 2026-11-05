@@ -4,9 +4,11 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from tests import test_graph_end_to_end as e2e
+from tradingagents.agents.analysts.turn import TOOL_LOOP_WARNING
 from tradingagents.graph.tool_loop_guard import (
     cached_historical_tool_messages,
     consecutive_identical_tool_rounds,
+    repeats_warned_tool_request,
 )
 
 offline = e2e.offline
@@ -88,7 +90,8 @@ def test_runtime_stops_before_maximum_when_repeated_rounds_stagnate(tmp_path, mo
         max_tool_rounds=8, max_stagnant_tool_rounds=3,
     )
     state, rating = graph.propagate("NVDA", "2026-01-09")
-    assert len(model.tool_turns) == 9  # 3 tool-using analysts * 3 identical rounds
+    # Each analyst gets 3 identical results, one warning, then a blocked 4th request.
+    assert len(model.tool_turns) == 12
     assert rating == "Overweight"
     assert state["market_report"]
 
@@ -169,7 +172,7 @@ def test_graph_reuses_historical_stock_data_without_reexecuting(tmp_path, monkey
     )
     state, rating = graph.propagate("NVDA", "2026-01-09")
     assert len(executions) == 1  # same market query was requested three times
-    assert len(model.tool_turns) == 9
+    assert len(model.tool_turns) == 12
     assert state["market_report"]
     assert rating == "Overweight"
 
@@ -228,8 +231,135 @@ def test_repeated_wrapup_prompt_names_tool_and_removes_tools(tmp_path, monkeypat
         and str(history[-1].content).startswith("Tool access is now disabled")
     ]
     assert len(wrapups) == 3
+    assert all(
+        sum(
+            isinstance(m, HumanMessage)
+            and str(m.content).startswith(TOOL_LOOP_WARNING)
+            for m in history
+        ) == 1
+        for history in wrapups
+    )
     assert any("Repeated tool(s): get_stock_data" in str(h[-1].content) for h in wrapups)
     assert all(
         "repeated requests returned no new data" in str(h[0].content)
         for h in wrapups
     )
+
+
+
+@pytest.mark.unit
+def test_warning_matches_only_the_immediately_repeated_request():
+    warned = [
+        *_round(call_id="a"),
+        *_round(call_id="b"),
+        *_round(call_id="c"),
+        HumanMessage(content=TOOL_LOOP_WARNING + " Use another tool."),
+    ]
+    same = AIMessage(content="", tool_calls=[
+        {"name": "get_stock_data", "args": {"ticker": "NVDA"}, "id": "d"}
+    ])
+    different = AIMessage(content="", tool_calls=[
+        {"name": "get_stock_data", "args": {"ticker": "MSFT"}, "id": "d"}
+    ])
+    assert repeats_warned_tool_request([*warned, same], TOOL_LOOP_WARNING)
+    assert not repeats_warned_tool_request([*warned, different], TOOL_LOOP_WARNING)
+    assert not repeats_warned_tool_request(
+        [*warned, *_round(call_id="x"), same], TOOL_LOOP_WARNING
+    )
+
+
+@pytest.mark.unit
+def test_corrected_model_can_write_report_without_forced_wrapup(tmp_path, monkeypatch, offline):
+    class ResponsiveModel(e2e.LoopingModel):
+        warnings: list = e2e.Field(default_factory=list)
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            if self.tools and any(
+                isinstance(m, HumanMessage)
+                and str(m.content).startswith(TOOL_LOOP_WARNING) for m in messages
+            ):
+                self.warnings.append(messages)
+                return e2e.ChatResult(
+                    generations=[e2e.ChatGeneration(message=AIMessage(content=e2e.TEXT))]
+                )
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    model = ResponsiveModel(structured=True)
+    graph = e2e._graph(
+        tmp_path, monkeypatch, model,
+        max_tool_rounds=8, max_stagnant_tool_rounds=3,
+    )
+    state, rating = graph.propagate("NVDA", "2026-01-09")
+    assert len(model.warnings) == 3
+    assert len(model.tool_turns) == 9
+    assert not any(
+        str(h[-1].content).startswith("Tool access is now disabled")
+        for h in model.last_turns
+    )
+    assert state["market_report"] == e2e.TEXT
+    assert rating == "Overweight"
+
+
+@pytest.mark.unit
+def test_corrected_model_can_change_tools_and_continue(tmp_path, monkeypatch, offline):
+    class SwitchToolModel(e2e.LoopingModel):
+        changes: list = e2e.Field(default_factory=list)
+
+        def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+            was_warned = any(
+                isinstance(m, HumanMessage)
+                and str(m.content).startswith(TOOL_LOOP_WARNING) for m in messages
+            )
+            if self.tools and was_warned:
+                if isinstance(messages[-1], ToolMessage):
+                    return e2e.ChatResult(
+                        generations=[e2e.ChatGeneration(message=AIMessage(content=e2e.TEXT))]
+                    )
+                other = self.tools[1]
+                self.changes.append(other.name)
+                call = {
+                    "name": other.name, "id": f"changed_{len(self.changes)}",
+                    "args": {
+                        key: value for key, value in e2e.ARGS.items()
+                        if key in other.tool_call_schema.model_json_schema()["properties"]
+                    },
+                }
+                return e2e.ChatResult(
+                    generations=[e2e.ChatGeneration(message=AIMessage(content="", tool_calls=[call]))]
+                )
+            return super()._generate(messages, stop, run_manager, **kwargs)
+
+    model = SwitchToolModel(structured=True)
+    graph = e2e._graph(
+        tmp_path, monkeypatch, model,
+        max_tool_rounds=8, max_stagnant_tool_rounds=3,
+    )
+    state, rating = graph.propagate("NVDA", "2026-01-09")
+    assert len(model.changes) == 3
+    assert len(model.tool_turns) == 9
+    assert state["market_report"] == e2e.TEXT
+    assert state["news_report"] == e2e.TEXT
+    assert state["fundamentals_report"] == e2e.TEXT
+    assert rating == "Overweight"
+
+
+@pytest.mark.unit
+def test_trajectory_eval_counts_blocked_calls_as_resolved(tmp_path, monkeypatch, offline):
+    from tradingagents.evaluation.collector import collect_trajectory
+
+    graph = e2e._graph(
+        tmp_path, monkeypatch, e2e.LoopingModel(structured=True),
+        max_tool_rounds=8, max_stagnant_tool_rounds=3,
+    )
+    report = collect_trajectory(
+        graph, "NVDA", "2026-01-09",
+        case_id="corrective-block", attempt_id="1", output_dir=tmp_path / "eval",
+    )
+    assert report["metrics"]["tool_calls_blocked"] == 3
+    assert report["metrics"]["tool_calls_requested"] == (
+        report["metrics"]["tool_calls"]
+        + report["metrics"]["tool_calls_reused"]
+        + report["metrics"]["tool_calls_blocked"]
+    )
+    assert report["rules"]["evidence_completeness"]["status"] == "pass", report
+    assert report["rules"]["tool_result_linkage"]["status"] == "pass", report
