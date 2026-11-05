@@ -14,6 +14,14 @@ WRAP_UP_REPEATED = (
     "returned unchanged results."
 )
 
+TOOL_LOOP_WARNING = (
+    "Repeated tool requests have returned unchanged results."
+)
+BLOCKED_REPEAT_RESULT = (
+    "SKIPPED_REPEAT: This identical tool request was blocked after the corrective "
+    "warning. No tool was executed."
+)
+
 
 def take_turn(prompt, llm, tools, messages):
     """生成分析师的回复与报告；工具调用期间报告保持为空。
