@@ -240,3 +240,134 @@ def test_no_report_period_or_bad_ticker_is_not_fabricated(hkex_data):
     )
     with pytest.raises(ValueError, match="Hong Kong"):
         hkex.announcements("BABA", "2026-08-01", "2026-11-04")
+
+
+@pytest.fixture
+def balance_without_start_date(monkeypatch, hkex_data):
+    """Real HK balance-sheet API omits START_DATE entirely."""
+    table = pd.DataFrame([
+        {"SECURITY_CODE": "09988", "REPORT_DATE": end,
+         "STD_ITEM_CODE": item, "STD_ITEM_NAME": label, "AMOUNT": value}
+        for end, item, label, value in [
+            ("2026-06-30", "assets", "资产总额", 123400),
+            ("2026-06-30", "liabilities", "负债总额", 11100),
+            ("2026-09-30", "future", "未来资产", 999999),
+            ("2026-03-31", "annual", "年度资产", 567890),
+        ]
+    ])
+    calls = []
+
+    def report(**kwargs):
+        calls.append(kwargs)
+        assert kwargs["symbol"] == "资产负债表"
+        return table.copy()
+
+    monkeypatch.setitem(
+        sys.modules, "akshare",
+        SimpleNamespace(stock_financial_hk_report_em=report),
+    )
+    hk_financial._source_rows.cache_clear()
+    yield calls
+    hk_financial._source_rows.cache_clear()
+
+
+@pytest.mark.unit
+def test_hk_balance_sheet_without_start_date_matches_official_period(balance_without_start_date):
+    from tradingagents.dataflows.router import route_to_vendor
+
+    out = route_to_vendor("get_balance_sheet", "9988.HK", "quarterly", "2026-11-04")
+    assert "Balance sheet as of 2026-06-30" in out
+    assert "disclosed with 3-month results" in out
+    assert "2026-08-20 17:46" in out
+    assert "资产总额" in out and "123400" in out
+    assert "2026-09-30" not in out
+    assert "999999" not in out
+    assert "2026-03-31" not in out
+    assert balance_without_start_date[0]["indicator"] == "报告期"
+
+
+@pytest.mark.unit
+def test_hk_balance_sheet_without_start_date_is_unavailable_before_release(
+    balance_without_start_date,
+):
+    from tradingagents.dataflows.router import route_to_vendor
+
+    for asof in ("2026-08-19", "2026-08-20"):
+        out = route_to_vendor("get_balance_sheet", "9988.HK", "quarterly", asof)
+        assert out.startswith("NO_DATA_AVAILABLE:"), out
+        assert "123400" not in out
+
+
+@pytest.mark.unit
+def test_hk_annual_balance_sheet_without_start_date(balance_without_start_date):
+    out = hk_financial.get_balance_sheet("9988.HK", "annual", "2026-11-04")
+    assert "Balance sheet as of 2026-03-31" in out
+    assert "disclosed with 12-month results" in out
+    assert "年度资产" in out
+    assert "2026-06-30" not in out
+    assert balance_without_start_date[0]["indicator"] == "年度"
+
+
+@pytest.mark.unit
+def test_hk_balance_sheet_requires_unambiguous_official_period(
+    monkeypatch, balance_without_start_date,
+):
+    monkeypatch.setattr(hkex, "result_filings", lambda *args: [{
+        "title": "Financial results for the period ended 30 June 2026",
+        "published": pd.Timestamp("2026-08-20 17:46").to_pydatetime(),
+        "url": _BASE + "0820/2026082000123.pdf",
+    }])
+    monkeypatch.setattr(hk_financial, "_pdf_first_pages", lambda url: "")
+    hk_financial._filings_for_analysis.cache_clear()
+    with pytest.raises(NoMarketDataError, match="no balance report"):
+        hk_financial.get_balance_sheet("9988.HK", "quarterly", "2026-11-04")
+
+
+@pytest.mark.unit
+def test_hk_income_statement_still_requires_start_date(
+    monkeypatch, balance_without_start_date,
+):
+    monkeypatch.setitem(sys.modules, "akshare", SimpleNamespace(
+        stock_financial_hk_report_em=lambda **kwargs: pd.DataFrame([{
+            "SECURITY_CODE": "09988", "REPORT_DATE": "2026-06-30",
+            "STD_ITEM_CODE": "revenue", "STD_ITEM_NAME": "营业收入",
+            "AMOUNT": 100,
+        }]),
+    ))
+    hk_financial._source_rows.cache_clear()
+    with pytest.raises(VendorUnavailableError, match="START_DATE"):
+        hk_financial.get_income_statement("9988.HK", "quarterly", "2026-11-04")
+
+
+
+@pytest.mark.unit
+def test_balance_sheet_can_confirm_unstated_duration_from_hkex_pdf(
+    monkeypatch, balance_without_start_date,
+):
+    monkeypatch.setattr(hkex, "result_filings", lambda *args: [{
+        "title": "Financial results for the period ended 30 June 2026",
+        "published": pd.Timestamp("2026-08-20 17:46").to_pydatetime(),
+        "url": _BASE + "0820/2026082000123.pdf",
+    }])
+    monkeypatch.setattr(
+        hk_financial, "_pdf_first_pages",
+        lambda url: "UNAUDITED RESULTS FOR THE THREE MONTHS ENDED 30 JUNE 2026",
+    )
+    hk_financial._filings_for_analysis.cache_clear()
+    out = hk_financial.get_balance_sheet("9988.HK", "quarterly", "2026-11-04")
+    assert "Balance sheet as of 2026-06-30" in out
+    assert "disclosed with 3-month results" in out
+
+
+@pytest.mark.unit
+def test_fundamentals_keeps_verified_balance_when_other_statements_are_unavailable(
+    balance_without_start_date,
+):
+    from tradingagents.dataflows.router import route_to_vendor
+
+    # Mocked Eastmoney returns only balance-sheet-shaped rows here; other
+    # statement adapters must fail rather than corrupt the verified balance.
+    out = route_to_vendor("get_fundamentals", "9988.HK", "2026-11-04")
+    assert "Balance sheet as of 2026-06-30" in out
+    assert "利润表: DATA_UNAVAILABLE" in out
+    assert "现金流量表: DATA_UNAVAILABLE" in out

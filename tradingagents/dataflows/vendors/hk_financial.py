@@ -170,22 +170,27 @@ def _source_rows(code: str, kind: str, frequency: str) -> pd.DataFrame:
     if data is None or data.empty:
         raise NoMarketDataError(f"{code}.HK", detail="no HK financial statements")
     required = {
-        "SECURITY_CODE", "REPORT_DATE", "START_DATE",
-        "STD_ITEM_CODE", "STD_ITEM_NAME", "AMOUNT",
+        "SECURITY_CODE", "REPORT_DATE", "STD_ITEM_CODE", "STD_ITEM_NAME", "AMOUNT",
     }
+    # The balance sheet is a point-in-time statement. Its Eastmoney response
+    # does not contain START_DATE, unlike income and cash-flow statements.
+    if kind != "balance":
+        required.add("START_DATE")
     if not required.issubset(data.columns):
         raise VendorUnavailableError(
             f"HK financial rows missing fields: {sorted(required - set(data.columns))}"
         )
     data = data.copy()
     data["REPORT_DATE"] = pd.to_datetime(data["REPORT_DATE"], errors="coerce")
-    data["START_DATE"] = pd.to_datetime(data["START_DATE"], errors="coerce")
-    data = data[
+    valid = (
         data["SECURITY_CODE"].astype(str).str.zfill(5).eq(code)
         & data["REPORT_DATE"].notna()
-        & data["START_DATE"].notna()
         & data["STD_ITEM_NAME"].notna()
-    ]
+    )
+    if kind != "balance":
+        data["START_DATE"] = pd.to_datetime(data["START_DATE"], errors="coerce")
+        valid &= data["START_DATE"].notna()
+    data = data[valid]
     if data.empty:
         raise NoMarketDataError(f"{code}.HK", detail="no valid HK financial rows")
     return data
@@ -209,11 +214,18 @@ def _evidence_for_period(
         if _REVISED.search(row["title"]):
             continue
         period = _period_in_text(row["title"])
-        if period is None:
-            period = _period_in_text(_pdf_first_pages(row["url"]))
+        if period is None or period[1] is None:
+            # A title can contain the exact end date but no period length.
+            # Only promote it when the original HKEX PDF supplies a matching
+            # dated period and an unambiguous duration.
+            pdf_period = _period_in_text(_pdf_first_pages(row["url"]))
+            if period is None or (pdf_period and pdf_period[0] == period[0]):
+                period = pdf_period
         if period is None or period[0] != period_end:
             continue
-        if period[1] is not None and months != period[1]:
+        # Do not use a generic "results for date X" to infer a quarterly or
+        # annual period. Balance sheets have no START_DATE to cross-check it.
+        if period[1] != months:
             continue
         return row
     return None
@@ -238,25 +250,48 @@ def _statement(ticker: str, kind: str, frequency: str, curr_date: str) -> str:
     sections = []
     for report_day in dates:
         block = rows[rows["REPORT_DATE"].dt.date == report_day]
-        for start in sorted(block["START_DATE"].dt.date.unique(), reverse=True):
-            group = block[block["START_DATE"].dt.date == start]
-            months = _duration_months(start, report_day)
-            if months not in {3, 6, 12}:
-                continue
-            # Only the annual 12-month period qualifies for annual requests;
-            # quarterly mode supports actual 3- and 6-month interim periods.
-            if frequency == "annual" and months != 12:
-                continue
-            if frequency == "quarterly" and months == 12:
-                continue
-            filing = _evidence_for_period(evidence, report_day, months)
-            if filing is None:
-                continue
+        groups = []
+        if kind == "balance":
+            # Balance sheet values are measured *at* REPORT_DATE, not over an
+            # income/cash-flow interval. Use the actual HKEX results filing
+            # to identify the annual vs quarterly/interim disclosure context.
+            allowed_lengths = (12,) if frequency == "annual" else (3, 6)
+            matched = [
+                (months, filing)
+                for months in allowed_lengths
+                if (filing := _evidence_for_period(evidence, report_day, months))
+                is not None
+            ]
+            # Reject ambiguous matches instead of inventing a START_DATE.
+            if len(matched) == 1:
+                months, filing = matched[0]
+                groups.append((None, months, block, filing))
+        else:
+            for start in sorted(block["START_DATE"].dt.date.unique(), reverse=True):
+                group = block[block["START_DATE"].dt.date == start]
+                months = _duration_months(start, report_day)
+                if months not in {3, 6, 12}:
+                    continue
+                if frequency == "annual" and months != 12:
+                    continue
+                if frequency == "quarterly" and months == 12:
+                    continue
+                filing = _evidence_for_period(evidence, report_day, months)
+                if filing is not None:
+                    groups.append((start, months, group, filing))
+
+        for start, months, group, filing in groups:
             show = group[["STD_ITEM_CODE", "STD_ITEM_NAME", "AMOUNT"]].drop_duplicates(
                 "STD_ITEM_CODE", keep="first"
             )
+            heading = (
+                f"### Balance sheet as of {report_day} "
+                f"(disclosed with {months}-month results)"
+                if start is None else
+                f"### Report period {start} to {report_day} ({months} months)"
+            )
             lines = [
-                f"### Report period {start} to {report_day} ({months} months)",
+                heading,
                 f"First verified HKEX publication: {filing['published']:%Y-%m-%d %H:%M} (Asia/Hong_Kong)",
                 f"Official original filing: {filing['url']}",
                 f"Source of numeric financial rows: Eastmoney HK via AKShare ({_KINDS[kind]})",
