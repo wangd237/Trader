@@ -20,12 +20,13 @@ from tradingagents.agents import (
     create_sentiment_analyst,
     create_trader,
 )
-from tradingagents.agents.analysts.turn import WRAP_UP
+from tradingagents.agents.analysts.turn import WRAP_UP, WRAP_UP_REPEATED
 from tradingagents.agents.state import AgentState
+from tradingagents.dataflows.date_window import is_historical
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
-from .tool_loop_guard import consecutive_identical_tool_rounds
+from .tool_loop_guard import cached_historical_tool_messages, consecutive_identical_tool_rounds
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,11 @@ def _tools_or_done(state) -> str:
     return "tools" if state["messages"][-1].tool_calls else END
 
 
-def _analyst_graph(spec, agent, max_tool_rounds: int, max_stagnant_tool_rounds: int = 3):
+def _analyst_graph(
+    spec, agent, max_tool_rounds: int,
+    max_stagnant_tool_rounds: int = 3,
+    reuse_historical_tool_results: bool = True,
+):
     """每名分析师使用独立子图执行模型和工具调用，并维护私有消息历史。
 
     子图只返回该分析师的报告，因此并行分析师不会写入同一个状态键，
@@ -81,16 +86,51 @@ def _analyst_graph(spec, agent, max_tool_rounds: int, max_stagnant_tool_rounds: 
             return "wrap_up"
         return "agent"
 
+    def cached_results(state):
+        return cached_historical_tool_messages(
+            state["messages"], historical_run=is_historical(state["trade_date"]),
+        ) if reuse_historical_tool_results else None
+
+    def tools_or_done(state):
+        if _tools_or_done(state) == END:
+            return END
+        return "cached_tools" if cached_results(state) is not None else "tools"
+
+    def cached_tools(state):
+        results = cached_results(state)
+        if results is None:
+            raise ValueError("cached tool round is no longer reusable")
+        logger.info("%s reused %d historical tool result(s)", spec.agent_node, len(results))
+        return {"messages": results}
+
     def wrap_up(state):
-        repeated = ", ".join(f"{name} x{n}" for name, n in Counter(calls(state["messages"])).most_common())
-        logger.warning("%s used its %d tool rounds (%s); asking for its report",
-                       spec.agent_node, rounds(state["messages"]), repeated)
-        return agent({**state, "messages": [*state["messages"], HumanMessage(WRAP_UP)]})
+        counts = ", ".join(f"{name} x{n}" for name, n in Counter(calls(state["messages"])).most_common())
+        stagnant_rounds = consecutive_identical_tool_rounds(state["messages"])
+        if max_stagnant_tool_rounds > 0 and stagnant_rounds >= max_stagnant_tool_rounds:
+            # The final completed batch is the most recent AI tool request.
+            latest_calls = next(
+                (m.tool_calls for m in reversed(state["messages"]) if getattr(m, "tool_calls", None)), []
+            )
+            names = ", ".join(sorted({call["name"] for call in latest_calls}))
+            message = (
+                f"{WRAP_UP_REPEATED} Repeated tool(s): {names}. "
+                "Write the report using available evidence. Explain missing or uncertain "
+                "data rather than guessing; do not request further tools."
+            )
+            logger.warning("%s stopped after %d unchanged tool rounds (%s)",
+                           spec.agent_node, stagnant_rounds, names)
+        else:
+            message = WRAP_UP
+            logger.warning("%s used its %d tool rounds (%s); asking for its report",
+                           spec.agent_node, rounds(state["messages"]), counts)
+        return agent({**state, "messages": [*state["messages"], HumanMessage(message)]})
 
     graph.add_node("tools", ToolNode(list(spec.tools)))
+    graph.add_node("cached_tools", cached_tools)
     graph.add_node("wrap_up", wrap_up)
-    graph.add_conditional_edges("agent", _tools_or_done, ["tools", END])
+    graph.add_conditional_edges("agent", tools_or_done, ["tools", "cached_tools", END])
     graph.add_conditional_edges("tools", more_or_wrap_up, ["agent", "wrap_up"])
+    graph.add_conditional_edges("cached_tools", more_or_wrap_up, ["agent", "wrap_up"])
     graph.add_edge("wrap_up", END)
     return graph.compile()
 
@@ -105,6 +145,7 @@ class GraphSetup:
         conditional_logic: ConditionalLogic,
         max_tool_rounds: int,
         max_stagnant_tool_rounds: int = 3,
+        reuse_historical_tool_results: bool = True,
     ):
         """使用必需的组件进行初始化。"""
         self.quick_thinking_llm = quick_thinking_llm
@@ -114,6 +155,7 @@ class GraphSetup:
         if max_stagnant_tool_rounds < 0:
             raise ValueError("max_stagnant_tool_rounds must be >= 0")
         self.max_stagnant_tool_rounds = max_stagnant_tool_rounds
+        self.reuse_historical_tool_results = reuse_historical_tool_results
 
     def setup_graph(
         self, selected_analysts=("market", "social", "news", "fundamentals"), memory_node=None
@@ -156,7 +198,8 @@ class GraphSetup:
         for spec in plan.specs:
             workflow.add_node(spec.agent_node,
                               _analyst_graph(spec, analyst_factories[spec.key](), self.max_tool_rounds,
-                                             self.max_stagnant_tool_rounds))
+                                             self.max_stagnant_tool_rounds,
+                                             self.reuse_historical_tool_results))
 
         # 5. 将研究团队和交易团队的节点添加到主图中
         workflow.add_node("Bull Researcher", bull_researcher_node)
