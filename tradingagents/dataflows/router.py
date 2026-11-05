@@ -6,7 +6,7 @@ from tradingagents.dataflows.errors import (
     VendorNotConfiguredError,
     VendorUnavailableError,
 )
-from tradingagents.dataflows.vendors import ashare, cn_news, eastmoney_us, hk
+from tradingagents.dataflows.vendors import ashare, cn_news, eastmoney_us, hk, hk_financial, hkex
 from tradingagents.dataflows.vendors.alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -114,23 +114,27 @@ VENDOR_METHODS = {
     # 基本面数据接口。
     "get_fundamentals": {
         "ashare": ashare.get_fundamentals,
+        "hk": hk_financial.get_fundamentals,
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
     },
     "get_balance_sheet": {
         "ashare": ashare.get_balance_sheet,
+        "hk": hk_financial.get_balance_sheet,
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "sec_edgar": get_sec_edgar_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
     },
     "get_cashflow": {
         "ashare": ashare.get_cashflow,
+        "hk": hk_financial.get_cashflow,
         "alpha_vantage": get_alpha_vantage_cashflow,
         "sec_edgar": get_sec_edgar_cashflow,
         "yfinance": get_yfinance_cashflow,
     },
     "get_income_statement": {
         "ashare": ashare.get_income_statement,
+        "hk": hk_financial.get_income_statement,
         "alpha_vantage": get_alpha_vantage_income_statement,
         "sec_edgar": get_sec_edgar_income_statement,
         "yfinance": get_yfinance_income_statement,
@@ -138,6 +142,7 @@ VENDOR_METHODS = {
     # 新闻数据接口。
     "get_news": {
         "cn_news": cn_news.get_news,
+        "hk": hkex.get_news,
         "ashare": ashare.get_news,
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
@@ -242,7 +247,8 @@ def route_to_vendor(method: str, *args, **kwargs):
         # Keep existing vendor fallback and DATA_UNAVAILABLE semantics.
         primary_vendors = ["ashare"]
     elif (
-        method in {"get_stock_data", "get_indicators"}
+        method in {"get_stock_data", "get_indicators", "get_fundamentals",
+                   "get_balance_sheet", "get_cashflow", "get_income_statement", "get_news"}
         and hk.is_hk(first_arg)
         and method not in config.get("tool_vendors", {})
     ):
