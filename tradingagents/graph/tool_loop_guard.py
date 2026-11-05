@@ -129,6 +129,9 @@ def cached_historical_tool_messages(
             getattr(by_id[i], "status", "success") != "success"
             or not isinstance(by_id[i].content, str)
             or not by_id[i].content.strip()
+            or by_id[i].content.lstrip().upper().startswith(
+                ("DATA_UNAVAILABLE:", "NO_DATA_AVAILABLE:", "ERROR:")
+            )
             for i in ids
         ):
             continue
