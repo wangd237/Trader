@@ -116,9 +116,19 @@ TRADINGAGENTS_RESULTS_DIR=./results
 
 **国内财经新闻优先（默认）**
 
-个股新闻与全球快讯按 `cn_news,yfinance` 顺序尝试。国内源优先使用 AKShare 接入的**财联社、东方财富和新浪财经**，可通过 `python -m pip install -e ".[ashare]"` 安装可选依赖。需要**第一财经**新闻时，可额外安装 `python -m pip install tushare`，并在 `.env` 设置有新闻资讯权限的 `TUSHARE_TOKEN`；该历史新闻接口可能需要单独付费授权。
+个股新闻与全球快讯按 `cn_news,yfinance` 顺序尝试。国内源使用 AKShare 接入的**财联社、东方财富和新浪财经**最新快讯，可通过 `python -m pip install -e ".[ashare]"` 安装可选依赖。若要获取**历史财经新闻**，可额外安装 `python -m pip install tushare`，并在 `.env` 设置开通了独立新闻资讯权限的 `TUSHARE_TOKEN`；代码优先按分析时间窗口查询**第一财经、财联社、东方财富和新浪财经**的历史新闻。未开通权限时，不会将最新快讯伪装成过去的新闻。
 
 国内快讯接口通常只覆盖最近资讯。若指定日期窗口没有可核验的新闻，路由器会回退 Yahoo；不会使用分析日期之后的新闻充当历史证据。A 股的公司公告仍按原规则优先走巨潮资讯；美股行情、财报数据源不受这项新闻默认值调整影响。
+
+**BABA 美股历史行情优先使用国内数据源**
+
+针对 `BABA`（纽约证券交易所 ADR），`get_stock_data`、`get_indicators` 和 `get_verified_market_snapshot` 优先通过 AKShare 的东方财富 `stock_us_hist(symbol="106.BABA")` 取得指定日期的美股日 K，并从同一份日 K 本地计算技术指标；Yahoo 保留为失败回退。该数据为**美元报价、不复权的 ADR 日线**，不应混同港股 `9988.HK` 或 Yahoo 的复权收盘价。尚未验证国内接口在各网络环境的实时可用性。其他美股仍使用原有提供商，未添加未经核实的市场代码映射。
+
+要在不调用 LLM 的情况下测试 BABA 行情：
+
+```powershell
+python -c "from tradingagents.agents.tools import get_stock_data; print(get_stock_data.func('BABA', '2026-10-20', '2026-11-04')[:700])"
+```
 
 **3. 启动**
 
