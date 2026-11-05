@@ -133,9 +133,10 @@ def _pdf_first_pages(url: str) -> str:
             return ""
         reader = PdfReader(BytesIO(content), strict=False)
         return "\n".join(
-            (page.extract_text() or "") for page in list(reader.pages)[:2]
+            (reader.pages[i].extract_text() or "")
+            for i in range(min(2, len(reader.pages)))
         )[:12000]
-    except (requests.RequestException, ValueError, OSError):
+    except Exception:  # noqa: BLE001 — PDF retrieval/parsing is optional evidence
         return ""
 
 
