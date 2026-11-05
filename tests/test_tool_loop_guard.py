@@ -4,7 +4,10 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from tests import test_graph_end_to_end as e2e
-from tradingagents.graph.tool_loop_guard import consecutive_identical_tool_rounds
+from tradingagents.graph.tool_loop_guard import (
+    cached_historical_tool_messages,
+    consecutive_identical_tool_rounds,
+)
 
 offline = e2e.offline
 
@@ -101,3 +104,91 @@ def test_runtime_can_disable_early_stop(tmp_path, monkeypatch, offline):
     )
     graph.propagate("NVDA", "2026-01-09")
     assert len(model.tool_turns) == 12
+
+
+
+@pytest.mark.unit
+def test_cache_reuses_identical_historical_request_with_new_tool_call_id():
+    history = [*_round(call_id="a"), AIMessage(content="", tool_calls=[
+        {"name": "get_stock_data", "args": {"ticker": "NVDA"}, "id": "b"},
+    ])]
+    replay = cached_historical_tool_messages(history, historical_run=True)
+    assert replay is not None and len(replay) == 1
+    assert replay[0].tool_call_id == "b"
+    assert replay[0].content == "same"
+
+
+@pytest.mark.unit
+def test_cache_respects_history_scope_and_dynamic_tools():
+    history = [*_round(call_id="a"), AIMessage(content="", tool_calls=[
+        {"name": "get_stock_data", "args": {"ticker": "NVDA"}, "id": "b"},
+    ])]
+    assert cached_historical_tool_messages(history, historical_run=False) is None
+    news = [*_round(name="get_news", call_id="a"), AIMessage(content="", tool_calls=[
+        {"name": "get_news", "args": {"ticker": "NVDA"}, "id": "b"},
+    ])]
+    assert cached_historical_tool_messages(news, historical_run=True) is None
+
+
+@pytest.mark.unit
+def test_cache_never_replays_failed_or_unavailable_tool_response():
+    old = _round(call_id="a")
+    old[1] = ToolMessage(content="DATA_UNAVAILABLE: vendor down", tool_call_id="a")
+    pending = AIMessage(content="", tool_calls=[
+        {"name": "get_stock_data", "args": {"ticker": "NVDA"}, "id": "b"},
+    ])
+    assert cached_historical_tool_messages([*old, pending], historical_run=True) is None
+    old[1] = ToolMessage(content="same", tool_call_id="a", status="error")
+    assert cached_historical_tool_messages([*old, pending], historical_run=True) is None
+
+
+@pytest.mark.unit
+def test_cache_requires_same_arguments():
+    history = [*_round(call_id="a"), AIMessage(content="", tool_calls=[
+        {"name": "get_stock_data", "args": {"ticker": "MSFT"}, "id": "b"},
+    ])]
+    assert cached_historical_tool_messages(history, historical_run=True) is None
+
+
+@pytest.mark.unit
+def test_graph_reuses_historical_stock_data_without_reexecuting(tmp_path, monkeypatch, offline):
+    from tests.test_graph_end_to_end import LoopingModel, _graph
+    from tradingagents.dataflows import router
+
+    executions = []
+    for vendor in router.VENDOR_METHODS["get_stock_data"]:
+        monkeypatch.setitem(
+            router.VENDOR_METHODS["get_stock_data"], vendor,
+            lambda *args, **kwargs: executions.append(args) or "historical prices",
+        )
+    model = LoopingModel(structured=True)
+    graph = _graph(
+        tmp_path, monkeypatch, model,
+        max_tool_rounds=8, max_stagnant_tool_rounds=3,
+        reuse_historical_tool_results=True,
+    )
+    state, rating = graph.propagate("NVDA", "2026-01-09")
+    assert len(executions) == 1  # same market query was requested three times
+    assert len(model.tool_turns) == 9
+    assert state["market_report"]
+    assert rating == "Overweight"
+
+
+@pytest.mark.unit
+def test_graph_can_disable_pre_execution_cache(tmp_path, monkeypatch, offline):
+    from tests.test_graph_end_to_end import LoopingModel, _graph
+    from tradingagents.dataflows import router
+
+    executions = []
+    for vendor in router.VENDOR_METHODS["get_stock_data"]:
+        monkeypatch.setitem(
+            router.VENDOR_METHODS["get_stock_data"], vendor,
+            lambda *args, **kwargs: executions.append(args) or "historical prices",
+        )
+    graph = _graph(
+        tmp_path, monkeypatch, LoopingModel(structured=True),
+        max_tool_rounds=4, max_stagnant_tool_rounds=3,
+        reuse_historical_tool_results=False,
+    )
+    graph.propagate("NVDA", "2026-01-09")
+    assert len(executions) == 3
