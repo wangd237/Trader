@@ -40,18 +40,21 @@ def repeats_warned_tool_request(messages: Sequence[BaseMessage], warning_prefix:
         if isinstance(message, AIMessage) and message.tool_calls:
             # Another tool request has already happened since the warning.
             return False
-        if isinstance(message, HumanMessage) and isinstance(message.content, str):
-            if message.content.startswith(warning_prefix):
-                previous = next(
-                    (
-                        m for m in reversed(messages[:index])
-                        if isinstance(m, AIMessage) and m.tool_calls
-                    ),
-                    None,
-                )
-                return previous is not None and _request_key(previous.tool_calls) == _request_key(
-                    latest.tool_calls
-                )
+        if (
+            isinstance(message, HumanMessage)
+            and isinstance(message.content, str)
+            and message.content.startswith(warning_prefix)
+        ):
+            previous = next(
+                (
+                    m for m in reversed(messages[:index])
+                    if isinstance(m, AIMessage) and m.tool_calls
+                ),
+                None,
+            )
+            return previous is not None and _request_key(previous.tool_calls) == _request_key(
+                latest.tool_calls
+            )
     return False
 
 
