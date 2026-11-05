@@ -192,3 +192,19 @@ def test_graph_can_disable_pre_execution_cache(tmp_path, monkeypatch, offline):
     )
     graph.propagate("NVDA", "2026-01-09")
     assert len(executions) == 3
+
+
+
+@pytest.mark.unit
+def test_latest_failed_request_blocks_older_successful_cache():
+    messages = [
+        *_round(call_id="a"),
+        AIMessage(content="", tool_calls=[
+            {"name": "get_stock_data", "args": {"ticker": "NVDA"}, "id": "b"},
+        ]),
+        ToolMessage(content="DATA_UNAVAILABLE: vendor down", tool_call_id="b"),
+        AIMessage(content="", tool_calls=[
+            {"name": "get_stock_data", "args": {"ticker": "NVDA"}, "id": "c"},
+        ]),
+    ]
+    assert cached_historical_tool_messages(messages, historical_run=True) is None
