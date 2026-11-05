@@ -81,3 +81,38 @@ def test_router_vendor_order_prioritises_cn_news():
     assert DEFAULT_CONFIG["data_vendors"]["news_data"] == "cn_news,yfinance"
     assert "cn_news" in VENDOR_METHODS["get_news"]
     assert "cn_news" in VENDOR_METHODS["get_global_news"]
+
+
+
+@pytest.mark.unit
+def test_authorised_tushare_historical_news_is_used_without_future_leakage(monkeypatch):
+    """A dated archival Yicai item must work even if free flash feeds are empty."""
+    monkeypatch.setenv("TUSHARE_TOKEN", "dummy-test-token")
+    requests = []
+
+    def news(**kwargs):
+        requests.append(kwargs)
+        if kwargs["src"] != "yicai":
+            return pd.DataFrame()
+        return pd.DataFrame([
+            {"datetime": "2026-11-04 11:30:00", "title": "阿里巴巴披露业务消息",
+             "content": "阿里巴巴公司公告"},
+            {"datetime": "2026-11-05 09:30:00", "title": "阿里巴巴次日消息",
+             "content": "future"},
+        ])
+
+    monkeypatch.setitem(sys.modules, "tushare", SimpleNamespace(
+        pro_api=lambda token: SimpleNamespace(news=news),
+    ))
+    monkeypatch.setitem(sys.modules, "akshare", SimpleNamespace(
+        stock_info_global_cls=lambda: pd.DataFrame(),
+        stock_info_global_em=lambda: pd.DataFrame(),
+        stock_info_global_sina=lambda: pd.DataFrame(),
+    ))
+    result = cn_news.get_news("BABA", "2026-11-04", "2026-11-04")
+    assert "阿里巴巴披露业务消息" in result
+    assert "阿里巴巴次日消息" not in result
+    assert "第一财经 (Tushare)" in result
+    assert {request["src"] for request in requests} == {
+        "yicai", "cls", "eastmoney", "sina",
+    }
