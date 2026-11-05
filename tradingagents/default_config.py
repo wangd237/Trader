@@ -156,8 +156,8 @@ def build_default_config() -> dict:
         # 例如 "yfinance,alpha_vantage" 表示按顺序尝试，
         # "default" 表示采用全部可用提供商。
         "data_vendors": {
-            "core_stock_apis": "eastmoney_us,yfinance",  # BABA 优先东财美股历史行情
-            "technical_indicators": "eastmoney_us,yfinance",  # 由历史 OHLCV 本地计算
+            "core_stock_apis": "yfinance",       # A/HK 股票由市场专用路由自动选择国内源
+            "technical_indicators": "yfinance",  # A/HK 指标由各自日线行情本地计算
             # 美国上市公司财务报表优先使用 SEC EDGAR 的原始披露文件，
             # 之后回退到 Yahoo。公司概况及内部人交易等 SEC 不覆盖的工具
             # 则使用 Yahoo。
