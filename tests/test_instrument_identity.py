@@ -128,3 +128,13 @@ class GetInstrumentContextFromStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+@pytest.mark.unit
+def test_hk_identity_does_not_call_yahoo_to_avoid_429_on_domestic_run():
+    _identity.cache_clear()
+    with patch("tradingagents.agents.context.get_company_profile") as yahoo:
+        result = resolve_instrument_identity("9988.HK")
+    yahoo.assert_not_called()
+    assert result == {}
