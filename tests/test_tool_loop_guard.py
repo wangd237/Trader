@@ -208,3 +208,23 @@ def test_latest_failed_request_blocks_older_successful_cache():
         ]),
     ]
     assert cached_historical_tool_messages(messages, historical_run=True) is None
+
+
+
+@pytest.mark.unit
+def test_repeated_wrapup_prompt_names_tool_and_removes_tools(tmp_path, monkeypatch, offline):
+    from tests.test_graph_end_to_end import LoopingModel, _graph
+
+    model = LoopingModel(structured=True)
+    graph = _graph(
+        tmp_path, monkeypatch, model,
+        max_tool_rounds=8, max_stagnant_tool_rounds=3,
+    )
+    graph.propagate("NVDA", "2026-01-09")
+    last_messages = [history[-1].content for history in model.last_turns]
+    assert any("Repeated tool(s): get_stock_data" in str(msg) for msg in last_messages)
+    assert all("tool access is now disabled" in str(msg).lower() for msg in last_messages)
+    assert all(
+        "repeated requests returned no new data" in str(history[0].content)
+        for history in model.last_turns
+    )
