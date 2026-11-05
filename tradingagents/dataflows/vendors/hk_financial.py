@@ -10,6 +10,7 @@ after the first publication: original PDF links are retained for audit.
 from __future__ import annotations
 
 import calendar
+import math
 import re
 from datetime import date, timedelta
 from functools import lru_cache
@@ -231,6 +232,81 @@ def _evidence_for_period(
     return None
 
 
+def _quality_checked_items(group: pd.DataFrame, kind: str) -> tuple[pd.DataFrame, list[str]]:
+    """Clean only demonstrable data defects; never infer currency or units.
+
+    A repeated code with *different* amounts is ambiguous: suppress the code
+    rather than arbitrarily keeping the first result. Financial negatives and
+    outliers alone are NOT errors (especially for cash flows and EPS).
+    """
+    items = group[["STD_ITEM_CODE", "STD_ITEM_NAME", "AMOUNT"]].copy()
+    items["STD_ITEM_CODE"] = items["STD_ITEM_CODE"].astype("string").str.strip()
+    items["STD_ITEM_NAME"] = items["STD_ITEM_NAME"].astype("string").str.strip()
+    items["AMOUNT"] = pd.to_numeric(items["AMOUNT"], errors="coerce")
+
+    valid = (
+        items["STD_ITEM_CODE"].notna()
+        & items["STD_ITEM_CODE"].ne("")
+        & items["STD_ITEM_NAME"].notna()
+        & items["STD_ITEM_NAME"].ne("")
+        & items["AMOUNT"].map(lambda x: bool(pd.notna(x) and math.isfinite(x)))
+    )
+    notes = []
+    invalid_count = int((~valid).sum())
+    if invalid_count:
+        notes.append(f"Excluded {invalid_count} items with missing/non-finite amount or identity")
+    items = items[valid].copy()
+
+    # Eastmoney's computed balancing field is not a disclosed accounting line.
+    # It produced -94513999991.78 for BABA June 2026 despite lacking any
+    # identifiable official financial metric. Never feed it to the LLM.
+    pseudo = (
+        items["STD_ITEM_NAME"].isin(("非运算项目", "非運算項目"))
+        | items["STD_ITEM_CODE"].eq("004099999")
+    )
+    if pseudo.any():
+        notes.append(
+            f"Excluded {int(pseudo.sum())} non-accounting computed items "
+            "(e.g. 004099999 非运算项目)"
+        )
+        items = items[~pseudo]
+
+    if items.empty:
+        return items, notes
+
+    unique_amounts = items.groupby("STD_ITEM_CODE")["AMOUNT"].nunique(dropna=False)
+    conflicting = set(unique_amounts.index[unique_amounts.gt(1)])
+    if conflicting:
+        items = items[~items["STD_ITEM_CODE"].isin(conflicting)]
+        notes.append(
+            "Excluded conflicting values for source item code(s): "
+            + ", ".join(sorted(conflicting))
+        )
+    repeated = len(items) - len(items.drop_duplicates("STD_ITEM_CODE"))
+    if repeated:
+        items = items.drop_duplicates("STD_ITEM_CODE", keep="first")
+        notes.append(f"Collapsed {repeated} exact same-code duplicate entries")
+
+    # Revenue synonyms in the observed BABA income schema. Suppress only
+    # when the source explicitly reports *the same value* for both codes.
+    if kind == "income":
+        primary = items.loc[items["STD_ITEM_CODE"].eq("004001001"), "AMOUNT"]
+        alias = items.loc[items["STD_ITEM_CODE"].eq("004001999"), "AMOUNT"]
+        if not primary.empty and not alias.empty:
+            if float(primary.iloc[0]) == float(alias.iloc[0]):
+                items = items[~items["STD_ITEM_CODE"].eq("004001999")]
+                notes.append(
+                    "Revenue alias 004001999 (营运收入) suppressed: identical to "
+                    "004001001 (营业额); do not double-count"
+                )
+            else:
+                notes.append(
+                    "Revenue labels 004001001 and 004001999 differ: "
+                    "retain both and verify accounting definitions before combining"
+                )
+    return items, notes
+
+
 def _statement(ticker: str, kind: str, frequency: str, curr_date: str) -> str:
     code = hk._code(ticker)
     if frequency not in {"quarterly", "annual"}:
@@ -281,9 +357,9 @@ def _statement(ticker: str, kind: str, frequency: str, curr_date: str) -> str:
                     groups.append((start, months, group, filing))
 
         for start, months, group, filing in groups:
-            show = group[["STD_ITEM_CODE", "STD_ITEM_NAME", "AMOUNT"]].drop_duplicates(
-                "STD_ITEM_CODE", keep="first"
-            )
+            show, quality_notes = _quality_checked_items(group, kind)
+            if show.empty:
+                continue
             heading = (
                 f"### Balance sheet as of {report_day} "
                 f"(disclosed with {months}-month results)"
@@ -295,8 +371,13 @@ def _statement(ticker: str, kind: str, frequency: str, curr_date: str) -> str:
                 f"First verified HKEX publication: {filing['published']:%Y-%m-%d %H:%M} (Asia/Hong_Kong)",
                 f"Official original filing: {filing['url']}",
                 f"Source of numeric financial rows: Eastmoney HK via AKShare ({_KINDS[kind]})",
-                "Currency/amount units: AS RETURNED BY EASTMONEY; do not assume HKD or millions.",
-                f"Items: {len(show)}; displaying up to 80 rows.",
+                "Currency/amount units: UNVERIFIED. Financial reporting currency need not be HKD. "
+                "All AMOUNT figures remain unscaled, as returned by Eastmoney.",
+                "EPS/per-share fields (if present) are per-share amounts; do not add them to "
+                "monetary financial-statement totals.",
+                "Quality checks: " + ("; ".join(quality_notes) if quality_notes else
+                                     "no invalid, conflicting or placeholder rows detected"),
+                f"Usable source items: {len(show)}; displaying up to 80 rows.",
                 show.head(80).to_csv(index=False),
             ]
             sections.append("\n".join(lines))
