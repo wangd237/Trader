@@ -115,6 +115,8 @@ def _feed_items(start: datetime, end: datetime) -> list[dict]:
                     )
         except ImportError:
             logger.warning("Tushare archival news requested but tushare is not installed")
+        except Exception as exc:
+            logger.warning("Tushare archival news client unavailable: %s", type(exc).__name__)
 
     try:
         import akshare as ak
