@@ -179,7 +179,7 @@ class Phase0TraceProbe(BaseCallbackHandler):
                 ),
                 tool_results=(
                     _tool_result_refs(payload.get("result"))
-                    if kind == "graph_task_end" and payload.get("name") in ("tools", "cached_tools")
+                    if kind == "graph_task_end" and payload.get("name") in ("tools", "cached_tools", "blocked_tools")
                     else []
                 ),
             )
@@ -190,7 +190,7 @@ class Phase0TraceProbe(BaseCallbackHandler):
             for node, update in payload.items():
                 # Some LangGraph versions emit a None update after a tool
                 # task. Keep both event channels, without assuming coverage.
-                results = _tool_result_refs(update) if str(node) in ("tools", "cached_tools") else []
+                results = _tool_result_refs(update) if str(node) in ("tools", "cached_tools", "blocked_tools") else []
                 self._emit(
                     "state_update",
                     namespace=ns,
@@ -253,6 +253,10 @@ class Phase0TraceProbe(BaseCallbackHandler):
             len(e.get("tool_results", ())) for e in self.events
             if e["kind"] == "graph_task_end" and e.get("node") == "cached_tools"
         )
+        blocked_results = sum(
+            len(e.get("tool_results", ())) for e in self.events
+            if e["kind"] == "graph_task_end" and e.get("node") == "blocked_tools"
+        )
         return {
             "counts": dict(sorted(counts.items())),
             "top_level_completed_nodes": sorted({
@@ -276,7 +280,7 @@ class Phase0TraceProbe(BaseCallbackHandler):
                     "tool_result_refs": e.get("tool_results"),
                 }
                 for e in self.events
-                if e["kind"] == "graph_task_end" and e.get("node") in ("tools", "cached_tools")
+                if e["kind"] == "graph_task_end" and e.get("node") in ("tools", "cached_tools", "blocked_tools")
             ],
             "tool_node_diagnostics": [
                 {
@@ -286,7 +290,7 @@ class Phase0TraceProbe(BaseCallbackHandler):
                     "message_types": e.get("message_types"),
                 }
                 for e in self.events
-                if e["kind"] == "state_update" and e.get("node") in ("tools", "cached_tools")
+                if e["kind"] == "state_update" and e.get("node") in ("tools", "cached_tools", "blocked_tools")
             ],
             "llm_scope_diagnostics": [
                 {
@@ -299,6 +303,7 @@ class Phase0TraceProbe(BaseCallbackHandler):
             "tool_call_linkage": {
                 "requested": requests.total(),
                 "cached": cached_results,
+                "blocked": blocked_results,
                 "result_messages": results.total(),
                 "matched": matched.total(),
                 "unmatched_requests": (requests - results).total(),
