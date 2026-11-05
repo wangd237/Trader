@@ -371,3 +371,81 @@ def test_fundamentals_keeps_verified_balance_when_other_statements_are_unavailab
     assert "Balance sheet as of 2026-06-30" in out
     assert "利润表: DATA_UNAVAILABLE" in out
     assert "现金流量表: DATA_UNAVAILABLE" in out
+
+
+
+@pytest.mark.unit
+def test_hk_financial_quality_removes_duplicate_revenue_and_placeholder():
+    raw = pd.DataFrame([
+        {"STD_ITEM_CODE": "004001001", "STD_ITEM_NAME": "营业额", "AMOUNT": 268953000000.0},
+        {"STD_ITEM_CODE": "004001999", "STD_ITEM_NAME": "营运收入", "AMOUNT": 268953000000.0},
+        {"STD_ITEM_CODE": "004010999", "STD_ITEM_NAME": "经营溢利", "AMOUNT": 15161000000.0},
+        {"STD_ITEM_CODE": "004027002", "STD_ITEM_NAME": "每股基本盈利", "AMOUNT": 0.56},
+        {"STD_ITEM_CODE": "004099999", "STD_ITEM_NAME": "非运算项目", "AMOUNT": -94513999991.78},
+        {"STD_ITEM_CODE": "004010999", "STD_ITEM_NAME": "经营溢利", "AMOUNT": 15161000000.0},
+        {"STD_ITEM_CODE": "bad", "STD_ITEM_NAME": "不可用", "AMOUNT": "not-number"},
+    ])
+    clean, notes = hk_financial._quality_checked_items(raw, "income")
+    assert set(clean["STD_ITEM_CODE"]) == {"004001001", "004010999", "004027002"}
+    assert clean.loc[clean["STD_ITEM_CODE"] == "004001001", "AMOUNT"].iloc[0] == 268953000000.0
+    assert clean.loc[clean["STD_ITEM_CODE"] == "004027002", "AMOUNT"].iloc[0] == 0.56
+    joined = " ".join(notes)
+    assert "Revenue alias" in joined
+    assert "non-accounting" in joined
+    assert "duplicate" in joined
+    assert "non-finite" in joined
+
+
+@pytest.mark.unit
+def test_hk_financial_quality_conflicting_same_code_is_not_silently_deduplicated():
+    raw = pd.DataFrame([
+        {"STD_ITEM_CODE": "x", "STD_ITEM_NAME": "资产总额", "AMOUNT": 100},
+        {"STD_ITEM_CODE": "x", "STD_ITEM_NAME": "资产总额", "AMOUNT": 110},
+        {"STD_ITEM_CODE": "y", "STD_ITEM_NAME": "负债总额", "AMOUNT": 50},
+    ])
+    clean, notes = hk_financial._quality_checked_items(raw, "balance")
+    assert list(clean["STD_ITEM_CODE"]) == ["y"]
+    assert any("conflicting" in note for note in notes)
+
+
+@pytest.mark.unit
+def test_hk_income_differing_revenue_synonyms_are_not_assumed_equivalent():
+    raw = pd.DataFrame([
+        {"STD_ITEM_CODE": "004001001", "STD_ITEM_NAME": "营业额", "AMOUNT": 100},
+        {"STD_ITEM_CODE": "004001999", "STD_ITEM_NAME": "营运收入", "AMOUNT": 120},
+    ])
+    clean, notes = hk_financial._quality_checked_items(raw, "income")
+    assert len(clean) == 2
+    assert any("verify accounting definitions" in note for note in notes)
+
+
+@pytest.mark.unit
+def test_hk_financial_quality_is_applied_to_actual_tool_output(monkeypatch, financial_rows):
+    from tradingagents.dataflows.router import route_to_vendor
+
+    def dirty_report(**kwargs):
+        return pd.DataFrame([
+            {"SECURITY_CODE": "09988", "REPORT_DATE": "2026-06-30",
+             "START_DATE": "2026-04-01", "STD_ITEM_CODE": code,
+             "STD_ITEM_NAME": name, "AMOUNT": amount}
+            for code, name, amount in [
+                ("004001001", "营业额", 268953000000.0),
+                ("004001999", "营运收入", 268953000000.0),
+                ("004027002", "每股基本盈利", 0.56),
+                ("004099999", "非运算项目", -94513999991.78),
+            ]
+        ])
+
+    monkeypatch.setitem(
+        sys.modules, "akshare",
+        SimpleNamespace(stock_financial_hk_report_em=dirty_report),
+    )
+    hk_financial._source_rows.cache_clear()
+    result = route_to_vendor("get_income_statement", "9988.HK", "quarterly", "2026-11-04")
+    assert "004001001,营业额,268953000000.0" in result
+    assert "004001999,营运收入," not in result
+    assert "004099999,非运算项目," not in result
+    assert "Revenue alias" in result and "non-accounting" in result
+    assert "Currency/amount units: UNVERIFIED" in result
+    assert "per-share" in result
+    assert "2026-08-20 17:46" in result
