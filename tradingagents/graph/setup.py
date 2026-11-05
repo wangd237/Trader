@@ -2,7 +2,7 @@ import logging
 from collections import Counter
 from typing import Any, TypedDict
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -20,11 +20,22 @@ from tradingagents.agents import (
     create_sentiment_analyst,
     create_trader,
 )
-from tradingagents.agents.analysts.turn import WRAP_UP
+from tradingagents.agents.analysts.turn import (
+    BLOCKED_REPEAT_RESULT,
+    TOOL_LOOP_WARNING,
+    WRAP_UP,
+    WRAP_UP_REPEATED,
+)
 from tradingagents.agents.state import AgentState
+from tradingagents.dataflows.date_window import is_historical
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
+from .tool_loop_guard import (
+    cached_historical_tool_messages,
+    consecutive_identical_tool_rounds,
+    repeats_warned_tool_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +60,11 @@ def _tools_or_done(state) -> str:
     return "tools" if state["messages"][-1].tool_calls else END
 
 
-def _analyst_graph(spec, agent, max_tool_rounds: int):
+def _analyst_graph(
+    spec, agent, max_tool_rounds: int,
+    max_stagnant_tool_rounds: int = 3,
+    reuse_historical_tool_results: bool = True,
+):
     """每名分析师使用独立子图执行模型和工具调用，并维护私有消息历史。
 
     子图只返回该分析师的报告，因此并行分析师不会写入同一个状态键，
@@ -70,19 +85,124 @@ def _analyst_graph(spec, agent, max_tool_rounds: int):
     def rounds(messages) -> int:
         return sum(1 for m in messages if getattr(m, "tool_calls", None))
 
+    def warned(messages) -> bool:
+        return any(
+            isinstance(message, HumanMessage)
+            and isinstance(message.content, str)
+            and message.content.startswith(TOOL_LOOP_WARNING)
+            for message in messages
+        )
+
     def more_or_wrap_up(state) -> str:
-        return "wrap_up" if rounds(state["messages"]) >= max_tool_rounds else "agent"
+        messages = state["messages"]
+        if rounds(messages) >= max_tool_rounds:
+            return "wrap_up"
+        if (
+            max_stagnant_tool_rounds > 0
+            and consecutive_identical_tool_rounds(messages) >= max_stagnant_tool_rounds
+        ):
+            if warned(messages):
+                logger.warning("%s still repeats identical tool results after one warning; wrapping up",
+                               spec.agent_node)
+                return "wrap_up"
+            logger.warning("%s repeated identical tool results %d times; issuing one warning",
+                           spec.agent_node, max_stagnant_tool_rounds)
+            return "warn"
+        return "agent"
+
+    def latest_requested_tools(messages):
+        return next(
+            (m.tool_calls for m in reversed(messages) if getattr(m, "tool_calls", None)), []
+        )
+
+    def warn(state):
+        names = ", ".join(sorted({call["name"] for call in latest_requested_tools(state["messages"])}))
+        message = (
+            f"{TOOL_LOOP_WARNING} Repeated tool(s): {names}. "
+            "Do not call these tools again with the same arguments unless you have new evidence "
+            "that warrants refreshing them. Use the results already provided, choose a "
+            "different useful tool or strategy, or write your final report. "
+            "This is your one opportunity to adjust before repeated requests are blocked."
+        )
+        return {"messages": [HumanMessage(message)]}
+
+    def cached_results(state):
+        return cached_historical_tool_messages(
+            state["messages"], historical_run=is_historical(state["trade_date"]),
+        ) if reuse_historical_tool_results else None
+
+    def tools_or_done(state):
+        if _tools_or_done(state) == END:
+            return END
+        if max_stagnant_tool_rounds > 0 and repeats_warned_tool_request(
+            state["messages"], TOOL_LOOP_WARNING
+        ):
+            return "blocked_tools"
+        return "cached_tools" if cached_results(state) is not None else "tools"
+
+    def blocked_tools(state):
+        pending = state["messages"][-1]
+        logger.warning("%s blocked an unchanged tool request after the corrective warning",
+                       spec.agent_node)
+        return {
+            "messages": [
+                ToolMessage(
+                    content=BLOCKED_REPEAT_RESULT,
+                    tool_call_id=call["id"],
+                    name=call["name"],
+                    status="error",
+                )
+                for call in pending.tool_calls
+            ]
+        }
+
+    def cached_tools(state):
+        results = cached_results(state)
+        if results is None:
+            raise ValueError("cached tool round is no longer reusable")
+        logger.info("%s reused %d historical tool result(s)", spec.agent_node, len(results))
+        return {"messages": results}
 
     def wrap_up(state):
-        repeated = ", ".join(f"{name} x{n}" for name, n in Counter(calls(state["messages"])).most_common())
-        logger.warning("%s used its %d tool rounds (%s); asking for its report",
-                       spec.agent_node, max_tool_rounds, repeated)
-        return agent({**state, "messages": [*state["messages"], HumanMessage(WRAP_UP)]})
+        counts = ", ".join(f"{name} x{n}" for name, n in Counter(calls(state["messages"])).most_common())
+        stagnant_rounds = consecutive_identical_tool_rounds(state["messages"])
+        blocked = (
+            isinstance(state["messages"][-1], ToolMessage)
+            and state["messages"][-1].content == BLOCKED_REPEAT_RESULT
+        )
+        if blocked or (
+            max_stagnant_tool_rounds > 0
+            and stagnant_rounds >= max_stagnant_tool_rounds
+            and warned(state["messages"])
+        ):
+            latest_calls = latest_requested_tools(state["messages"])
+            names = ", ".join(sorted({call["name"] for call in latest_calls}))
+            message = (
+                f"{WRAP_UP_REPEATED} Repeated tool(s): {names}. "
+                "You have already received one strategy-correction warning. "
+                "Write the report using available evidence. Explain missing or uncertain "
+                "data rather than guessing; do not request further tools."
+            )
+            logger.warning("%s stopped after an unsuccessful correction (%s)",
+                           spec.agent_node, names)
+        else:
+            message = WRAP_UP
+            logger.warning("%s used its %d tool rounds (%s); asking for its report",
+                           spec.agent_node, rounds(state["messages"]), counts)
+        return agent({**state, "messages": [*state["messages"], HumanMessage(message)]})
 
     graph.add_node("tools", ToolNode(list(spec.tools)))
+    graph.add_node("cached_tools", cached_tools)
+    graph.add_node("blocked_tools", blocked_tools)
+    graph.add_node("warn", warn)
     graph.add_node("wrap_up", wrap_up)
-    graph.add_conditional_edges("agent", _tools_or_done, ["tools", END])
-    graph.add_conditional_edges("tools", more_or_wrap_up, ["agent", "wrap_up"])
+    graph.add_conditional_edges(
+        "agent", tools_or_done, ["tools", "cached_tools", "blocked_tools", END]
+    )
+    graph.add_conditional_edges("tools", more_or_wrap_up, ["agent", "warn", "wrap_up"])
+    graph.add_conditional_edges("cached_tools", more_or_wrap_up, ["agent", "warn", "wrap_up"])
+    graph.add_edge("blocked_tools", "wrap_up")
+    graph.add_edge("warn", "agent")
     graph.add_edge("wrap_up", END)
     return graph.compile()
 
@@ -96,12 +216,18 @@ class GraphSetup:
         deep_thinking_llm: Any,
         conditional_logic: ConditionalLogic,
         max_tool_rounds: int,
+        max_stagnant_tool_rounds: int = 3,
+        reuse_historical_tool_results: bool = True,
     ):
         """使用必需的组件进行初始化。"""
         self.quick_thinking_llm = quick_thinking_llm
         self.deep_thinking_llm = deep_thinking_llm
         self.conditional_logic = conditional_logic
         self.max_tool_rounds = max_tool_rounds
+        if max_stagnant_tool_rounds < 0:
+            raise ValueError("max_stagnant_tool_rounds must be >= 0")
+        self.max_stagnant_tool_rounds = max_stagnant_tool_rounds
+        self.reuse_historical_tool_results = reuse_historical_tool_results
 
     def setup_graph(
         self, selected_analysts=("market", "social", "news", "fundamentals"), memory_node=None
@@ -143,7 +269,9 @@ class GraphSetup:
         # 4. 将每个分析师的子图添加到主图中
         for spec in plan.specs:
             workflow.add_node(spec.agent_node,
-                              _analyst_graph(spec, analyst_factories[spec.key](), self.max_tool_rounds))
+                              _analyst_graph(spec, analyst_factories[spec.key](), self.max_tool_rounds,
+                                             self.max_stagnant_tool_rounds,
+                                             self.reuse_historical_tool_results))
 
         # 5. 将研究团队和交易团队的节点添加到主图中
         workflow.add_node("Bull Researcher", bull_researcher_node)

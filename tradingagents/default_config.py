@@ -129,6 +129,12 @@ def build_default_config() -> dict:
         "max_recur_limit": 100,
         # 分析师被要求提交报告前允许的最大工具调用轮数。
         "max_tool_rounds": 20,
+        # Stop after this many consecutive identical tool requests AND identical results.
+        # Set to 0 to disable the early-stop safeguard.
+        "max_stagnant_tool_rounds": 3,
+        # Reuse exact same successful, historical OHLCV/indicator results within a run.
+        # Live data, news, and other tools always execute normally.
+        "reuse_historical_tool_results": True,
         # 新闻和数据获取参数。
         # 增大参数可支持更长时间回溯或更广泛的宏观覆盖，
         # 减小参数可降低 Agent Prompt 的 token 开销。

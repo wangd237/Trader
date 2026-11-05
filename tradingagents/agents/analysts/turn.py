@@ -9,6 +9,19 @@ WRAP_UP = (
     "now from the tool results above, and say which data you could not retrieve."
 )
 
+WRAP_UP_REPEATED = (
+    "Tool access is now disabled because consecutive identical tool requests "
+    "returned unchanged results."
+)
+
+TOOL_LOOP_WARNING = (
+    "Repeated tool requests have returned unchanged results."
+)
+BLOCKED_REPEAT_RESULT = (
+    "SKIPPED_REPEAT: This identical tool request was blocked after the corrective "
+    "warning. No tool was executed."
+)
+
 
 def take_turn(prompt, llm, tools, messages):
     """生成分析师的回复与报告；工具调用期间报告保持为空。
@@ -16,10 +29,17 @@ def take_turn(prompt, llm, tools, messages):
     收尾时不再向模型绑定工具，因为模型即使被要求结束，也可能继续调用。
     历史工具调用与结果会转为文本传入，避免部分提供商拒绝接受
     包含工具调用记录、却未绑定工具的对话历史。"""
-    if messages and isinstance(messages[-1], HumanMessage) and messages[-1].content == WRAP_UP:
-        # Prompt 只能列出实际提供的工具；如果提到不可调用的工具，
-        # 模型仍可能尝试调用，部分提供商会因此返回空响应。
-        prompt = prompt.partial(tool_names="none; your tool rounds are spent")
+    latest = messages[-1] if messages else None
+    exhausted = isinstance(latest, HumanMessage) and latest.content == WRAP_UP
+    repeated = (
+        isinstance(latest, HumanMessage)
+        and isinstance(latest.content, str)
+        and latest.content.startswith(WRAP_UP_REPEATED)
+    )
+    if exhausted or repeated:
+        # Prompt 与实际工具接口都不再提供工具，不依赖模型服从文字指令。
+        reason = "your tool rounds are spent" if exhausted else "repeated requests returned no new data"
+        prompt = prompt.partial(tool_names=f"none; {reason}")
         result = (prompt | llm).invoke(_as_text(messages))
         return result, result.content
     result = (prompt | llm.bind_tools(tools)).invoke(messages)
