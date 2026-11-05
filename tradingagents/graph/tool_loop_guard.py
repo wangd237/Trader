@@ -11,12 +11,48 @@ import hashlib
 import json
 from collections.abc import Sequence
 
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 
 def _digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _request_key(requests: list[dict]) -> tuple:
+    """Compare tool requests without their per-turn tool-call IDs."""
+    return tuple((call.get("name"), _digest(call.get("args"))) for call in requests)
+
+
+def repeats_warned_tool_request(messages: Sequence[BaseMessage], warning_prefix: str) -> bool:
+    """Detect an unchanged batch immediately after a one-time corrective warning.
+
+    A tool batch with different arguments or names is a genuine correction and
+    is allowed. Do not apply an old warning to a later, unrelated batch.
+    """
+    if not messages or not isinstance(messages[-1], AIMessage):
+        return False
+    latest = messages[-1]
+    if not latest.tool_calls:
+        return False
+    for index in range(len(messages) - 2, -1, -1):
+        message = messages[index]
+        if isinstance(message, AIMessage) and message.tool_calls:
+            # Another tool request has already happened since the warning.
+            return False
+        if isinstance(message, HumanMessage) and isinstance(message.content, str):
+            if message.content.startswith(warning_prefix):
+                previous = next(
+                    (
+                        m for m in reversed(messages[:index])
+                        if isinstance(m, AIMessage) and m.tool_calls
+                    ),
+                    None,
+                )
+                return previous is not None and _request_key(previous.tool_calls) == _request_key(
+                    latest.tool_calls
+                )
+    return False
 
 
 def consecutive_identical_tool_rounds(messages: Sequence[BaseMessage]) -> int:
@@ -106,15 +142,12 @@ def cached_historical_tool_messages(
     ):
         return None
 
-    def request_key(requests: list[dict]) -> tuple:
-        return tuple((call["name"], _digest(call.get("args"))) for call in requests)
-
-    wanted = request_key(calls)
+    wanted = _request_key(calls)
     for index in range(len(messages) - 2, -1, -1):
         previous = messages[index]
         if not isinstance(previous, AIMessage) or not previous.tool_calls:
             continue
-        if request_key(previous.tool_calls) != wanted:
+        if _request_key(previous.tool_calls) != wanted:
             continue
         ids = [call.get("id") for call in previous.tool_calls]
         if any(not isinstance(i, str) or not i for i in ids) or len(set(ids)) != len(ids):
