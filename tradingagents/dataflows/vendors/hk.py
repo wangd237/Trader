@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from functools import lru_cache
+from threading import Lock
 
 import pandas as pd
 from stockstats import wrap
@@ -19,6 +20,8 @@ from tradingagents.dataflows.vendors.yahoo.ohlcv import _assert_ohlcv_not_stale
 
 _HK_SHARE = re.compile(r"^(\d{1,5})\.HK$", re.IGNORECASE)
 _COLUMNS = ("date", "open", "high", "low", "close", "volume")
+_HK_HISTORY_LOCK = Lock()
+
 _INDICATORS = {
     "close_50_sma", "close_200_sma", "close_10_ema",
     "macd", "macds", "macdh", "rsi",
@@ -90,11 +93,18 @@ def price_frame(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
     if start > end:
         raise ValueError("start_date is later than end_date")
     # Do not persist a current or future day's potentially unfinished bar.
-    data = (
-        _download(f"{code}.HK")
-        if end.date() >= date.today()
-        else _historic_download(f"{code}.HK").copy()
-    )
+    # functools.lru_cache is thread-safe for its internal dictionary, but
+    # concurrent *first misses* can still run the wrapped function multiple
+    # times. AKShare stock_hk_daily constructs a fresh native V8 MiniRacer for
+    # every download; concurrent cold misses can abort Windows Python rather
+    # than raise a catchable exception. Serialize the entire native call,
+    # including the cache-miss check.
+    with _HK_HISTORY_LOCK:
+        data = (
+            _download(f"{code}.HK")
+            if end.date() >= date.today()
+            else _historic_download(f"{code}.HK").copy()
+        )
     data = data[data["Date"].between(start, end)]
     if data.empty:
         raise NoMarketDataError(symbol, symbol, f"no HK bars for {start_date}..{end_date}")

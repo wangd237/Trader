@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from tradingagents.dataflows.date_window import is_historical
-from tradingagents.dataflows.vendors import ashare
+from tradingagents.dataflows.vendors import ashare, hk
 from tradingagents.dataflows.vendors.yahoo.fundamentals import get_company_profile
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,12 @@ def _identity(ticker: str) -> dict:
     """返回数据源中指定 ``ticker`` 的身份字段；查询失败时抛出异常。"""
     if ashare.is_ashare(ticker):
         return ashare.company_identity(ticker)
+    if hk.is_hk(ticker):
+        # In a HK-only diagnostic, do not contact Yahoo just to guess the
+        # issuer's *current* identity. The typed ticker is sufficient for tool
+        # routing, and dated HKEX/Eastmoney filings carry sourced identity.
+        # An unknown current company name is better than repeated Yahoo 429s.
+        return {}
     info = get_company_profile(ticker)
     identity: dict[str, str] = {}
     company_name = _clean_identity_value(info.get("longName")) or _clean_identity_value(

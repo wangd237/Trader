@@ -164,9 +164,16 @@ python -c "from tradingagents.agents.tools import get_income_statement; print(ge
 # 常规多 Agent 研究，保存报告以便人工审阅；会调用 LLM
 trader --ticker 9988.HK --date 2026-11-04 --analysts market,news,fundamentals --save --no-show
 
-# 结构化执行轨迹：独立缓存与记忆、不写入日常决策日志；会调用 LLM
+# 预检：只下载并缓存港股行情，不启动 Agent，不产生 LLM 费用
+python scripts/run_hk_trajectory.py --ticker 9988.HK --date 2026-11-04 --preflight-only
+
+# 结构化执行轨迹：先在主线程预热港股行情，再执行并行 Agent；会调用 LLM
 python scripts/run_hk_trajectory.py --ticker 9988.HK --date 2026-11-04 --confirm-live
 ```
+
+AKShare 新浪港股历史日线使用 `py_mini_racer` 的 V8 原生解码器，Windows 上多线程并发首次加载可能触发不可捕获的进程崩溃。Trader 对同一标的的首次历史行情下载加锁；真实轨迹入口还会在 LangGraph 并发执行前单线程预加载并缓存该标的。此措施针对**重复并发首次初始化**，不保证修复所有特定版本 `py_mini_racer` 的原生兼容性问题。如 `--preflight-only` 单独仍触发 V8 崩溃，应在隔离的 Python 3.11 环境与更新的 `mini-racer` 上复测，不要在当前环境反复执行付费 Agent。
+
+针对港股，News Analyst 默认只暴露 `get_news`（HKEXnews 官方公告），不再将 FRED 的美国宏观指标或 Yahoo 全球新闻当作港股官方公告的补充证据。港股公司身份也不会为了填当前行业标签而额外请求限流的 Yahoo；在来源无法核验时仅使用 ticker。其他市场的数据源仍按原配置执行。
 
 第二条复用现有 `TrajectoryCollector`，在 `results/trajectory_hk_live/` 下生成 `trace.jsonl`、`evaluation.json` 及无密钥的运行配置摘要。可以离线重新评估：
 
