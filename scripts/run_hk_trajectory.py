@@ -16,7 +16,10 @@ from dotenv import load_dotenv
 # Load API credentials before importing the default LLM configuration.
 load_dotenv()
 
+from tradingagents.dataflows.config import run_config  # noqa: E402
+from tradingagents.dataflows.errors import VendorError  # noqa: E402
 from tradingagents.dataflows.symbols import safe_ticker_component  # noqa: E402
+from tradingagents.dataflows.vendors import hk  # noqa: E402
 from tradingagents.dataflows.vendors.hk import is_hk  # noqa: E402
 from tradingagents.default_config import DEFAULT_CONFIG  # noqa: E402
 from tradingagents.evaluation.collector import collect_trajectory  # noqa: E402
@@ -33,11 +36,15 @@ def main() -> int:
     parser.add_argument("--attempt", default="01")
     parser.add_argument("--max-tool-rounds", type=int, default=4)
     parser.add_argument(
+        "--preflight-only", action="store_true",
+        help="Fetch/check HK market bars without running the LLM or Agent graph",
+    )
+    parser.add_argument(
         "--confirm-live", action="store_true",
         help="Acknowledge real network calls and potentially billable LLM usage",
     )
     args = parser.parse_args()
-    if not args.confirm_live:
+    if not args.confirm_live and not args.preflight_only:
         parser.error("pass --confirm-live to acknowledge network requests and LLM cost")
     if not is_hk(args.ticker):
         parser.error("--ticker must be a Hong Kong stock such as 9988.HK")
@@ -75,6 +82,26 @@ def main() -> int:
     # No benchmark fixture: this runner actually tests the configured HK data
     # vendors, unlike the existing frozen-price baseline.
     config.pop("benchmark_ohlcv_csv", None)
+
+    # Single-threaded preflight ensures the first AKShare Sina HK call (which
+    # creates a native MiniRacer/V8 context) finishes before LangGraph fans
+    # out analyst/tool execution. Shared historical cache then serves all
+    # market tools for this ticker without racing on a cold cache miss.
+    try:
+        with run_config(config):
+            bars = hk.load_ohlcv(ticker, str(analysis_date))
+    except (VendorError, ValueError) as exc:
+        parser.error(f"HK history preflight failed: {type(exc).__name__}: {exc}")
+    print(
+        f"HK history preflight OK: {ticker}, "
+        f"{len(bars)} bars through {bars['Date'].max().date()} "
+        "(single-threaded, cached for this process)",
+        flush=True,
+    )
+    if args.preflight_only:
+        print("No LLM or Agent execution requested.", flush=True)
+        return 0
+
     manifest = {
         "case_id": case_id,
         "attempt_id": args.attempt,
