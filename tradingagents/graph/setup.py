@@ -2,7 +2,7 @@ import logging
 from collections import Counter
 from typing import Any, TypedDict
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
@@ -20,13 +20,22 @@ from tradingagents.agents import (
     create_sentiment_analyst,
     create_trader,
 )
-from tradingagents.agents.analysts.turn import WRAP_UP, WRAP_UP_REPEATED
+from tradingagents.agents.analysts.turn import (
+    BLOCKED_REPEAT_RESULT,
+    TOOL_LOOP_WARNING,
+    WRAP_UP,
+    WRAP_UP_REPEATED,
+)
 from tradingagents.agents.state import AgentState
 from tradingagents.dataflows.date_window import is_historical
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
-from .tool_loop_guard import cached_historical_tool_messages, consecutive_identical_tool_rounds
+from .tool_loop_guard import (
+    cached_historical_tool_messages,
+    consecutive_identical_tool_rounds,
+    repeats_warned_tool_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,15 +85,46 @@ def _analyst_graph(
     def rounds(messages) -> int:
         return sum(1 for m in messages if getattr(m, "tool_calls", None))
 
+    def warned(messages) -> bool:
+        return any(
+            isinstance(message, HumanMessage)
+            and isinstance(message.content, str)
+            and message.content.startswith(TOOL_LOOP_WARNING)
+            for message in messages
+        )
+
     def more_or_wrap_up(state) -> str:
-        if rounds(state["messages"]) >= max_tool_rounds:
+        messages = state["messages"]
+        if rounds(messages) >= max_tool_rounds:
             return "wrap_up"
-        if (max_stagnant_tool_rounds > 0 and
-                consecutive_identical_tool_rounds(state["messages"]) >= max_stagnant_tool_rounds):
-            logger.warning("%s repeated an identical tool round %d times; asking for its report",
+        if (
+            max_stagnant_tool_rounds > 0
+            and consecutive_identical_tool_rounds(messages) >= max_stagnant_tool_rounds
+        ):
+            if warned(messages):
+                logger.warning("%s still repeats identical tool results after one warning; wrapping up",
+                               spec.agent_node)
+                return "wrap_up"
+            logger.warning("%s repeated identical tool results %d times; issuing one warning",
                            spec.agent_node, max_stagnant_tool_rounds)
-            return "wrap_up"
+            return "warn"
         return "agent"
+
+    def latest_requested_tools(messages):
+        return next(
+            (m.tool_calls for m in reversed(messages) if getattr(m, "tool_calls", None)), []
+        )
+
+    def warn(state):
+        names = ", ".join(sorted({call["name"] for call in latest_requested_tools(state["messages"])}))
+        message = (
+            f"{TOOL_LOOP_WARNING} Repeated tool(s): {names}. "
+            "Do not call these tools again with the same arguments unless you have new evidence "
+            "that warrants refreshing them. Use the results already provided, choose a "
+            "different useful tool or strategy, or write your final report. "
+            "This is your one opportunity to adjust before repeated requests are blocked."
+        )
+        return {"messages": [HumanMessage(message)]}
 
     def cached_results(state):
         return cached_historical_tool_messages(
@@ -94,7 +134,27 @@ def _analyst_graph(
     def tools_or_done(state):
         if _tools_or_done(state) == END:
             return END
+        if max_stagnant_tool_rounds > 0 and repeats_warned_tool_request(
+            state["messages"], TOOL_LOOP_WARNING
+        ):
+            return "blocked_tools"
         return "cached_tools" if cached_results(state) is not None else "tools"
+
+    def blocked_tools(state):
+        pending = state["messages"][-1]
+        logger.warning("%s blocked an unchanged tool request after the corrective warning",
+                       spec.agent_node)
+        return {
+            "messages": [
+                ToolMessage(
+                    content=BLOCKED_REPEAT_RESULT,
+                    tool_call_id=call["id"],
+                    name=call["name"],
+                    status="error",
+                )
+                for call in pending.tool_calls
+            ]
+        }
 
     def cached_tools(state):
         results = cached_results(state)
@@ -106,19 +166,25 @@ def _analyst_graph(
     def wrap_up(state):
         counts = ", ".join(f"{name} x{n}" for name, n in Counter(calls(state["messages"])).most_common())
         stagnant_rounds = consecutive_identical_tool_rounds(state["messages"])
-        if max_stagnant_tool_rounds > 0 and stagnant_rounds >= max_stagnant_tool_rounds:
-            # The final completed batch is the most recent AI tool request.
-            latest_calls = next(
-                (m.tool_calls for m in reversed(state["messages"]) if getattr(m, "tool_calls", None)), []
-            )
+        blocked = (
+            isinstance(state["messages"][-1], ToolMessage)
+            and state["messages"][-1].content == BLOCKED_REPEAT_RESULT
+        )
+        if blocked or (
+            max_stagnant_tool_rounds > 0
+            and stagnant_rounds >= max_stagnant_tool_rounds
+            and warned(state["messages"])
+        ):
+            latest_calls = latest_requested_tools(state["messages"])
             names = ", ".join(sorted({call["name"] for call in latest_calls}))
             message = (
                 f"{WRAP_UP_REPEATED} Repeated tool(s): {names}. "
+                "You have already received one strategy-correction warning. "
                 "Write the report using available evidence. Explain missing or uncertain "
                 "data rather than guessing; do not request further tools."
             )
-            logger.warning("%s stopped after %d unchanged tool rounds (%s)",
-                           spec.agent_node, stagnant_rounds, names)
+            logger.warning("%s stopped after an unsuccessful correction (%s)",
+                           spec.agent_node, names)
         else:
             message = WRAP_UP
             logger.warning("%s used its %d tool rounds (%s); asking for its report",
@@ -127,10 +193,16 @@ def _analyst_graph(
 
     graph.add_node("tools", ToolNode(list(spec.tools)))
     graph.add_node("cached_tools", cached_tools)
+    graph.add_node("blocked_tools", blocked_tools)
+    graph.add_node("warn", warn)
     graph.add_node("wrap_up", wrap_up)
-    graph.add_conditional_edges("agent", tools_or_done, ["tools", "cached_tools", END])
-    graph.add_conditional_edges("tools", more_or_wrap_up, ["agent", "wrap_up"])
-    graph.add_conditional_edges("cached_tools", more_or_wrap_up, ["agent", "wrap_up"])
+    graph.add_conditional_edges(
+        "agent", tools_or_done, ["tools", "cached_tools", "blocked_tools", END]
+    )
+    graph.add_conditional_edges("tools", more_or_wrap_up, ["agent", "warn", "wrap_up"])
+    graph.add_conditional_edges("cached_tools", more_or_wrap_up, ["agent", "warn", "wrap_up"])
+    graph.add_edge("blocked_tools", "wrap_up")
+    graph.add_edge("warn", "agent")
     graph.add_edge("wrap_up", END)
     return graph.compile()
 
