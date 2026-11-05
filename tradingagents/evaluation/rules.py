@@ -133,7 +133,9 @@ def _evidence_completeness(
         issues.append(f"orphan_model_tool_intents:{(recorded - requested).total()}")
     actual = observed["tool_call_linkage"]
     # Cache hits fulfill a model request without executing a provider tool.
-    executed_requests = actual["requested"] - actual.get("cached", 0)
+    executed_requests = (
+        actual["requested"] - actual.get("cached", 0) - actual.get("blocked", 0)
+    )
     if executed_requests and not counts.get("tool_start"):
         issues.append("missing_evidence:tool_callbacks")
     if executed_requests and counts.get("tool_end", 0) + counts.get("tool_error", 0) < executed_requests:
@@ -298,6 +300,7 @@ def evaluate_events(events: list[dict[str, Any]]) -> dict[str, Any]:
             "llm_calls": observed["counts"].get("llm_start", 0),
             "tool_calls": observed["counts"].get("tool_start", 0),
             "tool_calls_reused": link.get("cached", 0),
+            "tool_calls_blocked": link.get("blocked", 0),
             "tool_calls_requested": link["requested"],
             "candidate_duplicate_tool_calls": len(candidates),
         },
