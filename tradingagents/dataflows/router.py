@@ -6,7 +6,7 @@ from tradingagents.dataflows.errors import (
     VendorNotConfiguredError,
     VendorUnavailableError,
 )
-from tradingagents.dataflows.vendors import ashare, cn_news, eastmoney_us
+from tradingagents.dataflows.vendors import ashare, cn_news, eastmoney_us, hk
 from tradingagents.dataflows.vendors.alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -98,6 +98,7 @@ VENDOR_METHODS = {
     # 股票核心数据接口。
     "get_stock_data": {
         "ashare": ashare.get_stock_data,
+        "hk": hk.get_stock_data,
         "eastmoney_us": eastmoney_us.get_stock_data,
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
@@ -105,6 +106,7 @@ VENDOR_METHODS = {
     # 技术指标接口。
     "get_indicators": {
         "ashare": ashare.get_indicators,
+        "hk": hk.get_indicators,
         "eastmoney_us": eastmoney_us.get_indicators,
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
@@ -239,6 +241,13 @@ def route_to_vendor(method: str, *args, **kwargs):
     if is_ashare_request:
         # Keep existing vendor fallback and DATA_UNAVAILABLE semantics.
         primary_vendors = ["ashare"]
+    elif (
+        method in {"get_stock_data", "get_indicators"}
+        and hk.is_hk(first_arg)
+        and method not in config.get("tool_vendors", {})
+    ):
+        # Stock-specific HKEX routing, irrespective of the default US vendor.
+        primary_vendors = ["hk"]
 
     # 配置的数据提供商列表就是完整回退链，不会自动转向用户没有选择的
     # 提供商（#988/#289）。否则可能意外使用其他来源的数据，
