@@ -8,7 +8,7 @@ from tradingagents.agents.tools import (
     get_news,
     get_prediction_markets,
 )
-from tradingagents.dataflows.vendors import ashare
+from tradingagents.dataflows.vendors import ashare, hk
 
 # 分析师可调用的工具清单；工具节点也由同一元组构建。
 TOOLS = (
@@ -26,20 +26,36 @@ def create_news_analyst(llm):
         asset_label = "company" if asset_type == "stock" else "asset"
         instrument_context = get_instrument_context_from_state(state)
 
-        active_tools = (get_news,) if ashare.is_ashare(state["company_of_interest"]) else TOOLS
+        is_ashare = ashare.is_ashare(state["company_of_interest"])
+        is_hk = hk.is_hk(state["company_of_interest"])
+        active_tools = (get_news,) if (is_ashare or is_hk) else TOOLS
         system_message = (
             f"You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(start_date, end_date) for news about the {asset_label} under analysis, get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news, get_macro_indicators(indicator, curr_date, look_back_days) to ground macro commentary in actual data from FRED (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve'), and get_prediction_markets(topic, limit) for live market-implied probabilities of forward-looking events (e.g. 'Fed rate cut', 'recession 2026', geopolitical or sector events). Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + get_language_instruction()
         )
 
-        if ashare.is_ashare(state["company_of_interest"]):
+        if is_ashare:
             system_message = (
                 "You are an A-share company news researcher. Use get_news for official "
                 "CNINFO company announcements available at or before the analysis date. "
                 "Do not claim access to US FRED indicators, Reddit, or prediction markets "
                 "for domestic macro context. If no dated evidence is returned, say so. "
                 "The absence of disclosures does not imply positive or negative news."
+                + get_language_instruction()
+            )
+
+        elif is_hk:
+            system_message = (
+                "You are a Hong Kong-listed company disclosure researcher. "
+                "Use only get_news(start_date, end_date) to retrieve HKEXnews "
+                "official issuer announcements for the given ticker and analysis "
+                "date. Do not claim access to global media, FRED US macroeconomic "
+                "indicators, or current prediction markets. Official filings "
+                "are not a complete picture of market news or sentiment. "
+                "Cite actual HKEX announcement titles, release times, and URLs; "
+                "never invent market coverage or infer neutral sentiment merely "
+                "because no announcement exists. Point out evidence gaps."
                 + get_language_instruction()
             )
 
