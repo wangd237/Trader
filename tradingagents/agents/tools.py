@@ -8,7 +8,7 @@ from langgraph.prebuilt import InjectedState
 from tradingagents.dataflows.date_window import as_of, as_of_window
 from tradingagents.dataflows.errors import NoMarketDataError, VendorUnavailableError
 from tradingagents.dataflows.router import no_data_available, route_to_vendor, vendor_unavailable
-from tradingagents.dataflows.vendors import ashare
+from tradingagents.dataflows.vendors import ashare, eastmoney_us
 from tradingagents.dataflows.vendors.yahoo.snapshot import build_verified_market_snapshot
 
 
@@ -88,6 +88,27 @@ def get_verified_market_snapshot(
         if ashare.is_ashare(symbol):
             data = ashare.load_ohlcv(symbol, cutoff)
             return build_verified_market_snapshot(symbol, cutoff, look_back_days, data=data)
+
+        # Keep the verification snapshot on the same domestic BABA OHLCV source
+        # as the stock and indicator tools, rather than calling Yahoo directly.
+        # Frozen benchmark data retains its original fail-closed handling.
+        from tradingagents.dataflows.config import get_config
+        from tradingagents.dataflows.router import get_vendor
+        from tradingagents.dataflows.errors import VendorError
+
+        configured = get_vendor("core_stock_apis", "get_stock_data").split(",")
+        if (eastmoney_us.supports(symbol)
+                and "eastmoney_us" in configured
+                and not get_config().get("benchmark_ohlcv_csv")):
+            try:
+                data = eastmoney_us.load_ohlcv(symbol, cutoff)
+                return (
+                    "Source: Eastmoney US via AKShare (unadjusted daily bars)\n"
+                    + build_verified_market_snapshot(symbol, cutoff, look_back_days, data=data)
+                )
+            except VendorError:
+                # Fall through to the configured Yahoo path, as the router does.
+                pass
         return build_verified_market_snapshot(symbol, cutoff, look_back_days)
     except VendorUnavailableError as exc:
         return vendor_unavailable("get_verified_market_snapshot", exc)
