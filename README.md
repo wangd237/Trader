@@ -114,6 +114,12 @@ TRADINGAGENTS_RESULTS_DIR=./results
 
 `LLM_BASE_URL` 填 API 基础地址，不是 `/chat/completions` 接口；请勿提交包含密钥的 `.env`。
 
+**国内财经新闻优先（默认）**
+
+个股新闻与全球快讯按 `cn_news,yfinance` 顺序尝试。国内源优先使用 AKShare 接入的**财联社、东方财富和新浪财经**，可通过 `python -m pip install -e ".[ashare]"` 安装可选依赖。需要**第一财经**新闻时，可额外安装 `python -m pip install tushare`，并在 `.env` 设置有新闻资讯权限的 `TUSHARE_TOKEN`；该历史新闻接口可能需要单独付费授权。
+
+国内快讯接口通常只覆盖最近资讯。若指定日期窗口没有可核验的新闻，路由器会回退 Yahoo；不会使用分析日期之后的新闻充当历史证据。A 股的公司公告仍按原规则优先走巨潮资讯；美股行情、财报数据源不受这项新闻默认值调整影响。
+
 **3. 启动**
 
 ```powershell

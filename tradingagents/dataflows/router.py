@@ -6,7 +6,7 @@ from tradingagents.dataflows.errors import (
     VendorNotConfiguredError,
     VendorUnavailableError,
 )
-from tradingagents.dataflows.vendors import ashare
+from tradingagents.dataflows.vendors import ashare, cn_news
 from tradingagents.dataflows.vendors.alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -133,11 +133,13 @@ VENDOR_METHODS = {
     },
     # 新闻数据接口。
     "get_news": {
+        "cn_news": cn_news.get_news,
         "ashare": ashare.get_news,
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
     },
     "get_global_news": {
+        "cn_news": cn_news.get_global_news,
         "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
     },

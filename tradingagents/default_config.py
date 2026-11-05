@@ -162,7 +162,7 @@ def build_default_config() -> dict:
             # 之后回退到 Yahoo。公司概况及内部人交易等 SEC 不覆盖的工具
             # 则使用 Yahoo。
         "fundamental_data": "sec_edgar,yfinance",  # 可选：sec_edgar、alpha_vantage、yfinance
-            "news_data": "yfinance",             # 可选：alpha_vantage、yfinance
+            "news_data": "cn_news,yfinance",     # 中文新闻优先；失败时回退 Yahoo
             "macro_data": "fred",                # 可选：fred（需要 FRED_API_KEY）
             "prediction_markets": "polymarket",  # 可选：polymarket（无需密钥）
         },
