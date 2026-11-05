@@ -60,10 +60,12 @@ def test_reuse_historical_bars_across_indicators_and_snapshot(mock_eastmoney):
 
 
 @pytest.mark.unit
-def test_stock_router_prefers_domestic_for_baba(mock_eastmoney):
+def test_optional_us_vendor_is_available_when_explicitly_selected(mock_eastmoney):
+    from tradingagents.dataflows.config import run_config
     from tradingagents.dataflows.router import route_to_vendor
 
-    out = route_to_vendor("get_stock_data", "BABA", "2026-11-02", "2026-11-04")
+    with run_config({"data_vendors": {"core_stock_apis": "eastmoney_us"}}):
+        out = route_to_vendor("get_stock_data", "BABA", "2026-11-02", "2026-11-04")
     assert "Source: Eastmoney US" in out
 
 
@@ -71,7 +73,10 @@ def test_stock_router_prefers_domestic_for_baba(mock_eastmoney):
 def test_market_snapshot_uses_same_vendor(mock_eastmoney):
     from tradingagents.agents.tools import get_verified_market_snapshot
 
-    out = get_verified_market_snapshot.func("BABA", "2026-11-04", 5)
+    from tradingagents.dataflows.config import run_config
+
+    with run_config({"data_vendors": {"core_stock_apis": "eastmoney_us"}}):
+        out = get_verified_market_snapshot.func("BABA", "2026-11-04", 5)
     assert "Source: Eastmoney US" in out
     assert "Latest trading row used: 2026-11-04" in out
     assert "2026-11-05" not in out
