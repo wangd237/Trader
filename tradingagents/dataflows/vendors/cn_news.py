@@ -97,7 +97,7 @@ def _feed_items(start: datetime, end: datetime) -> list[dict]:
                 end_date=end.strftime("%Y-%m-%d %H:%M:%S"),
             )
             items.extend(_normalise(data, "第一财经 (Tushare)", start, end))
-        except (ImportError, Exception) as exc:
+        except Exception as exc:
             logger.warning("Yicai/Tushare news unavailable: %s", type(exc).__name__)
 
     try:
