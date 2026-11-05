@@ -93,8 +93,8 @@ def get_verified_market_snapshot(
         # as the stock and indicator tools, rather than calling Yahoo directly.
         # Frozen benchmark data retains its original fail-closed handling.
         from tradingagents.dataflows.config import get_config
-        from tradingagents.dataflows.router import get_vendor
         from tradingagents.dataflows.errors import VendorError
+        from tradingagents.dataflows.router import get_vendor
 
         configured = get_vendor("core_stock_apis", "get_stock_data").split(",")
         if (eastmoney_us.supports(symbol)
