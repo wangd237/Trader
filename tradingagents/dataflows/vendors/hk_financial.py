@@ -214,8 +214,13 @@ def _evidence_for_period(
         if _REVISED.search(row["title"]):
             continue
         period = _period_in_text(row["title"])
-        if period is None:
-            period = _period_in_text(_pdf_first_pages(row["url"]))
+        if period is None or period[1] is None:
+            # A title can contain the exact end date but no period length.
+            # Only promote it when the original HKEX PDF supplies a matching
+            # dated period and an unambiguous duration.
+            pdf_period = _period_in_text(_pdf_first_pages(row["url"]))
+            if period is None or (pdf_period and pdf_period[0] == period[0]):
+                period = pdf_period
         if period is None or period[0] != period_end:
             continue
         # Do not use a generic "results for date X" to infer a quarterly or
