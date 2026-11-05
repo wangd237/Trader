@@ -151,6 +151,31 @@ python -c "from tradingagents.agents.tools import get_income_statement; print(ge
 
 
 
+**港股财报质量检查与轨迹评测**
+
+- 港股三大报表会过滤无效数值、非会计占位科目（例如 `004099999 非运算项目`），对同一科目编码的重复记录去重；如果同一编码出现冲突金额，则不任选其一，而是排除并注明。
+- 对明确相同的收入科目别名（`004001001 营业额` / `004001999 营运收入`）仅保留一个，防止 Agent 重复计算；金额不同则保留并要求核对口径。
+- **币种与金额单位未经验证时不推断为港元或“百万”**；EPS 等每股指标不和金额合计。输出保留源代码、报表期、官方发布时间及原始公告链接。
+- 自动规则**不能证明**每个第三方金额与原始 PDF 完全一致，不能替代人工抽查关键指标。
+
+可以先用下列两种方式运行：
+
+```powershell
+# 常规多 Agent 研究，保存报告以便人工审阅；会调用 LLM
+trader --ticker 9988.HK --date 2026-11-04 --analysts market,news,fundamentals --save --no-show
+
+# 结构化执行轨迹：独立缓存与记忆、不写入日常决策日志；会调用 LLM
+python scripts/run_hk_trajectory.py --ticker 9988.HK --date 2026-11-04 --confirm-live
+```
+
+第二条复用现有 `TrajectoryCollector`，在 `results/trajectory_hk_live/` 下生成 `trace.jsonl`、`evaluation.json` 及无密钥的运行配置摘要。可以离线重新评估：
+
+```powershell
+python scripts/eval_trajectory.py --strict results/trajectory_hk_live
+```
+
+自动评测覆盖执行路径、工具权限/参数、重复调用候选、调用关联、轮次预算和完成状态；**不会**自动判定分析报告里的财务推断是否正确。人工复核重点是报告日期、币种/单位、是否双计收入、异常科目是否被引用、每个关键结论能否追溯到原始披露文件。
+
 **3. 启动**
 
 ```powershell
