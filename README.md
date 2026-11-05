@@ -120,15 +120,21 @@ TRADINGAGENTS_RESULTS_DIR=./results
 
 国内快讯接口通常只覆盖最近资讯。若指定日期窗口没有可核验的新闻，路由器会回退 Yahoo；不会使用分析日期之后的新闻充当历史证据。A 股的公司公告仍按原规则优先走巨潮资讯；美股行情、财报数据源不受这项新闻默认值调整影响。
 
-**BABA 美股历史行情优先使用国内数据源**
+**A 股与港股国内行情（默认自动识别）**
 
-针对 `BABA`（纽约证券交易所 ADR），`get_stock_data`、`get_indicators` 和 `get_verified_market_snapshot` 优先通过 AKShare 的东方财富 `stock_us_hist(symbol="106.BABA")` 取得指定日期的美股日 K，并从同一份日 K 本地计算技术指标；Yahoo 保留为失败回退。该数据为**美元报价、不复权的 ADR 日线**，不应混同港股 `9988.HK` 或 Yahoo 的复权收盘价。尚未验证国内接口在各网络环境的实时可用性。其他美股仍使用原有提供商，未添加未经核实的市场代码映射。
+- **A 股**：例如 `600519.SH`、`000001.SZ`。保留已有腾讯财经历史行情、技术指标本地计算、巨潮资讯公告和新浪财经财报。以证券代码后缀自动路由，不需要调整 `data_vendors`。
+- **港股**：例如 `9988.HK`、`0700.HK`。通过 AKShare 的新浪财经 `stock_hk_daily` 获取不复权港元日线（`9988.HK` 会映射为新浪的五位代码 `09988`）；`get_stock_data`、`get_indicators` 和 `get_verified_market_snapshot` 使用同一批截至分析日期的 OHLCV。历史时点请求会过滤之后的价格；过期/无效数据会报告不可用。
+- **美股**：恢复原本的默认 `yfinance`；原有 `eastmoney_us` 适配器可由明确的工具/提供商配置选择，但不作为默认源。
 
-要在不调用 LLM 的情况下测试 BABA 行情：
+安装可选的国内数据依赖：`python -m pip install -e ".[ashare]"`。
+
+单独验证港股数据（不调用 LLM）：
 
 ```powershell
-python -c "from tradingagents.agents.tools import get_stock_data; print(get_stock_data.func('BABA', '2026-10-20', '2026-11-04')[:700])"
+python -c "from tradingagents.dataflows.vendors.hk import get_stock_data; print(get_stock_data('9988.HK','2026-10-20','2026-11-04')[:750])"
 ```
+
+**港股基本面限制：** 东财的港股财报接口能获取按报告期组织的数据，但并未在本项目中验证所有条目的实际公告日期，暂不接入历史回测报表工具，以避免把未来披露信息混入旧日期分析。港股公司公告、财报和个股新闻目前不应视为已完成的全链路覆盖；使用前请检查对应的 `DATA_UNAVAILABLE` 和真实来源。
 
 **3. 启动**
 
