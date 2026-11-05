@@ -91,7 +91,12 @@ def test_budget_rounds_are_not_conflated_with_tool_calls(tmp_path, monkeypatch, 
         case_id="wrapup", attempt_id="1", output_dir=tmp_path / "eval",
     )
     assert report["rules"]["tool_round_budget"]["status"] == "pass", report
-    assert report["metrics"]["tool_calls"] >= 6
+    # Three analysts make two model requests each, but a historical result may
+    # be served from the per-run cache without executing another vendor tool.
+    assert report["metrics"]["tool_calls_requested"] >= 6
+    assert report["metrics"]["tool_calls"] + report["metrics"]["tool_calls_reused"] >= 6
+    assert report["rules"]["evidence_completeness"]["status"] == "pass", report
+    assert report["rules"]["tool_result_linkage"]["status"] == "pass", report
 
 
 @pytest.mark.unit
