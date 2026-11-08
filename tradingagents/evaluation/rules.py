@@ -186,8 +186,8 @@ def _evidence_completeness(
         [
             e["event_id"] for e in events
             if e["kind"] in ("llm_end", "tool_intent") and (
-                (any(not _is_structured_request(e, c) for c in e.get("tool_requests", []))
-                 if e["kind"] == "llm_end" else not _is_structured_event(e))
+                any(not _is_structured_request(e, c) for c in e.get("tool_requests", []))
+                if e["kind"] == "llm_end" else not _is_structured_event(e)
             )
         ] if issues else [],
     )
