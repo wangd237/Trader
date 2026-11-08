@@ -145,3 +145,137 @@ def test_diagnostic_collector_rejects_checkpoint_mode(tmp_path, monkeypatch):
             graph, "NVDA", TRADE_DATE, case_id="bad_config",
             attempt_id="1", output_dir=tmp_path,
         )
+
+
+@pytest.mark.unit
+def test_structured_function_calls_are_not_executable_business_tools():
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    collector = TrajectoryCollector(
+        case_id="schema", attempt_id="1", trade_date=TRADE_DATE,
+        selected_analysts=("market",), max_tool_rounds=2,
+    )
+    cases = (
+        ("Research Manager", "ResearchPlan", {
+            "recommendation": "Hold", "rationale": "Balanced evidence",
+            "strategic_actions": "Maintain allocation",
+        }),
+        ("Trader", "TraderProposal", {
+            "action": "Hold", "reasoning": "No reliable edge",
+        }),
+        ("Portfolio Manager", "PortfolioDecision", {
+            "rating": "Hold", "executive_summary": "Maintain",
+            "investment_thesis": "Balanced risk",
+        }),
+        ("Sentiment Analyst", "SentimentReport", {
+            "overall_band": "Neutral", "overall_score": 5.0,
+            "confidence": "low", "narrative": "Sparse evidence",
+        }),
+    )
+    for number, (agent, name, args) in enumerate(cases):
+        collector.on_llm_end(
+            LLMResult(generations=[[ChatGeneration(message=AIMessage(
+                content="", tool_calls=[{"id": f"call-{number}", "name": name, "args": args}],
+            ))]]),
+            run_id=f"model-{number}",
+            metadata={"langgraph_checkpoint_ns": f"{agent}:test"},
+        )
+    intents = [e for e in collector.events if e["kind"] == "tool_intent"]
+    assert len(intents) == 4
+    assert all(e["intent_kind"] == "structured_output" and e["schema_valid"] for e in intents)
+    assert all(e["authorized"] is None for e in intents)
+    collector.finish({}, RuntimeError("synthetic incomplete graph"))
+    report = evaluate_events(collector.events)
+    assert report["metrics"]["tool_calls_requested"] == 0
+    assert report["metrics"]["structured_output_calls"] == 4
+    assert report["metrics"]["structured_output_schema_validated"] == 4
+    assert report["rules"]["structured_output_schema"]["status"] == "pass"
+    assert report["rules"]["model_tool_intent"]["status"] == "not_applicable"
+    assert report["rules"]["tool_result_linkage"]["status"] == "not_applicable"
+    assert report["rules"]["tool_round_budget"]["status"] == "not_applicable"
+
+
+@pytest.mark.unit
+def test_invalid_structured_schema_is_not_silently_accepted():
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    collector = TrajectoryCollector(
+        case_id="bad-schema", attempt_id="1", trade_date=TRADE_DATE,
+        selected_analysts=("market",), max_tool_rounds=2,
+    )
+    collector.on_llm_end(
+        LLMResult(generations=[[ChatGeneration(message=AIMessage(
+            content="", tool_calls=[{
+                "name": "ResearchPlan", "id": "bad-schema",
+                "args": {"recommendation": "not-a-rating"},
+            }],
+        ))]]),
+        run_id="schema-model", metadata={"langgraph_checkpoint_ns": "Research Manager:test"},
+    )
+    collector.finish({}, RuntimeError("synthetic graph"))
+    report = evaluate_events(collector.events)
+    assert report["rules"]["structured_output_schema"]["status"] == "fail"
+    assert report["metrics"]["tool_calls_requested"] == 0
+
+
+@pytest.mark.unit
+def test_legacy_jsonl_distinguishes_schema_calls_without_claiming_validation(tmp_path):
+    collector = TrajectoryCollector(
+        case_id="legacy", attempt_id="1", trade_date=TRADE_DATE,
+        selected_analysts=("market",), max_tool_rounds=2,
+    )
+    for i, (agent, name) in enumerate((
+        ("Research Manager", "ResearchPlan"),
+        ("Trader", "TraderProposal"),
+    )):
+        scope = f"{agent}:legacy"
+        collector._emit(
+            "llm_end", run_id=f"run-{i}", checkpoint_ns=scope,
+            tool_requests=[{"name": name, "tool_call_id": f"call-{i}"}],
+        )
+        collector._emit(
+            "tool_intent", scope=scope, agent=agent, model_run_id=f"run-{i}",
+            tool_name=name, tool_call_id=f"call-{i}",
+            authorized=False, schema_valid=False, malformed=False,
+            date_errors=[], arg_fingerprint=f"fp-{i}",
+        )
+    collector.finish({}, RuntimeError("synthetic graph"))
+    report = evaluate_events(collector.events)
+    assert report["metrics"]["tool_calls_requested"] == 0
+    assert report["metrics"]["structured_output_calls"] == 2
+    assert report["rules"]["structured_output_schema"]["status"] == "not_applicable"
+    assert "legacy_schema_arguments_not_recorded" in report["rules"]["structured_output_schema"]["details"]
+    assert report["rules"]["model_tool_intent"]["status"] == "not_applicable"
+    assert report["rules"]["tool_result_linkage"]["status"] == "not_applicable"
+    assert report["rules"]["tool_round_budget"]["status"] == "not_applicable"
+    saved = collector.save(tmp_path)
+    assert evaluate_events(load_trace(tmp_path / "trace.jsonl")) == saved
+
+
+@pytest.mark.unit
+def test_unknown_function_call_still_fails_authorization():
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration, LLMResult
+
+    collector = TrajectoryCollector(
+        case_id="unknown", attempt_id="1", trade_date=TRADE_DATE,
+        selected_analysts=("market",), max_tool_rounds=2,
+    )
+    collector.on_llm_end(
+        LLMResult(generations=[[ChatGeneration(message=AIMessage(
+            content="", tool_calls=[{
+                "name": "get_secret_data", "id": "untrusted",
+                "args": {},
+            }],
+        ))]]),
+        run_id="unknown-model",
+        metadata={"langgraph_checkpoint_ns": "Research Manager:test"},
+    )
+    collector.finish({}, RuntimeError("synthetic graph"))
+    report = evaluate_events(collector.events)
+    assert report["metrics"]["tool_calls_requested"] == 1
+    assert report["metrics"]["structured_output_calls"] == 0
+    assert report["rules"]["model_tool_intent"]["status"] == "fail"
+    assert report["rules"]["tool_result_linkage"]["status"] == "fail"
