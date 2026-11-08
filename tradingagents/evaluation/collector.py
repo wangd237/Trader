@@ -19,6 +19,7 @@ import tradingagents
 from tradingagents.dataflows.config import run_config_context
 from tradingagents.graph.analyst_execution import ANALYST_NODE_SPECS
 
+from .intent_kinds import structured_output_schema
 from .phase0_probe import Phase0TraceProbe, _id, _scope
 from .rules import evaluate_events
 
@@ -114,16 +115,27 @@ class TrajectoryCollector(Phase0TraceProbe):
                         self._fingerprint_key, canonical.encode("utf-8"), hashlib.sha256
                     ).hexdigest()[:20]
                     name = call.get("name")
-                    authorized = allowed is not None and name in allowed
+                    # Structured-output function calls are parsed by the model
+                    # wrapper, never dispatched to an analyst ToolNode.
+                    output_schema = structured_output_schema(scope or agent, name)
+                    is_output = output_schema is not None
+                    authorized = None if is_output else (allowed is not None and name in allowed)
                     schema_valid = False
-                    if valid_args and authorized:
-                        try:
-                            allowed[name].tool_call_schema.model_validate(args)
-                            schema_valid = True
-                        except (TypeError, ValueError):
-                            pass
+                    if valid_args:
+                        schema = (
+                            output_schema if is_output
+                            else allowed[name].tool_call_schema if authorized
+                            else None
+                        )
+                        if schema is not None:
+                            try:
+                                schema.model_validate(args)
+                                schema_valid = True
+                            except (TypeError, ValueError):
+                                pass
                     self._emit(
                         "tool_intent",
+                        intent_kind="structured_output" if is_output else "business_tool",
                         model_run_id=_id(kwargs.get("run_id")),
                         scope=scope,
                         agent=agent,
@@ -132,7 +144,7 @@ class TrajectoryCollector(Phase0TraceProbe):
                         arg_fingerprint=fingerprint,
                         authorized=authorized,
                         schema_valid=schema_valid,
-                        date_errors=_date_errors(args, self.trade_date) if valid_args else [],
+                        date_errors=_date_errors(args, self.trade_date) if valid_args and not is_output else [],
                         malformed=not valid_args,
                     )
 
