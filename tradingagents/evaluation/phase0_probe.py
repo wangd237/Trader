@@ -15,6 +15,8 @@ from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
 
+from .intent_kinds import is_structured_output
+
 
 def _id(value: Any) -> str | None:
     return str(value) if value is not None else None
@@ -235,6 +237,9 @@ class Phase0TraceProbe(BaseCallbackHandler):
             _tool_key(_scope(e.get("checkpoint_ns")), call)
             for e in self.events if e["kind"] == "llm_end"
             for call in e.get("tool_requests", ())
+            if not is_structured_output(
+                _scope(e.get("checkpoint_ns")) or e.get("graph_node"), call.get("name")
+            )
         )
         results = Counter(
             _tool_key(e["namespace"][0] if e.get("namespace") else None, result)

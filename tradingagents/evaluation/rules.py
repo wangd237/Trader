@@ -7,6 +7,7 @@ from typing import Any
 
 from tradingagents.graph.analyst_execution import ANALYST_NODE_SPECS
 
+from .intent_kinds import is_structured_output
 from .phase0_probe import Phase0TraceProbe, _scope
 
 
@@ -99,6 +100,43 @@ def _node_order(
     )
 
 
+def _is_structured_event(event: dict[str, Any]) -> bool:
+    """Recognize old and new traces by the exact agent/schema pair.
+
+    Never trust a user/model supplied kind alone to exempt an unknown call.
+    """
+    scope = event.get("scope") or _scope(event.get("checkpoint_ns"))
+    return is_structured_output(scope or event.get("agent") or event.get("graph_node"),
+                                event.get("tool_name"))
+
+
+def _is_structured_request(event: dict[str, Any], call: dict[str, Any]) -> bool:
+    return is_structured_output(
+        _scope(event.get("checkpoint_ns")) or event.get("graph_node"),
+        call.get("name"),
+    )
+
+
+def _structured_schema_rule(intents: list[dict[str, Any]]) -> dict[str, Any]:
+    """Older metadata-only traces cannot prove schema validity after the fact."""
+    if not intents:
+        return _check("not_applicable", ["no_structured_output_calls"], [])
+    failed = [
+        e for e in intents
+        if e.get("intent_kind") == "structured_output"
+        and (not e.get("schema_valid") or e.get("malformed"))
+    ]
+    unverified = [e for e in intents if e.get("intent_kind") != "structured_output"]
+    if failed:
+        return _check("fail", ["invalid_structured_output_schema"], [e["event_id"] for e in failed])
+    if unverified:
+        return _check(
+            "not_applicable", ["legacy_schema_arguments_not_recorded"],
+            [e["event_id"] for e in unverified],
+        )
+    return _check("pass", [], [])
+
+
 def _evidence_completeness(
     events: list[dict[str, Any]], finished: bool, observed: dict[str, Any],
 ) -> dict[str, Any]:
@@ -122,10 +160,12 @@ def _evidence_completeness(
         )
         for e in events if e["kind"] == "llm_end"
         for call in e.get("tool_requests", [])
+        if not _is_structured_request(e, call)
     )
     recorded = Counter(
         (e.get("scope"), e.get("tool_name"), e.get("tool_call_id"), e.get("model_run_id"))
         for e in events if e["kind"] == "tool_intent" and not e.get("malformed")
+        and not _is_structured_event(e)
     )
     if requested - recorded:
         issues.append(f"unobserved_model_tool_intents:{(requested - recorded).total()}")
@@ -146,7 +186,8 @@ def _evidence_completeness(
         [
             e["event_id"] for e in events
             if e["kind"] in ("llm_end", "tool_intent") and (
-                e.get("tool_requests") or e["kind"] == "tool_intent"
+                any(not _is_structured_request(e, c) for c in e.get("tool_requests", []))
+                if e["kind"] == "llm_end" else not _is_structured_event(e)
             )
         ] if issues else [],
     )
@@ -155,7 +196,9 @@ def _evidence_completeness(
 def _budget(events: list[dict[str, Any]], limit: int) -> dict[str, Any]:
     by_scope: dict[str, set[str]] = defaultdict(set)
     for e in events:
-        if e["kind"] != "llm_end" or not e.get("tool_requests"):
+        if e["kind"] != "llm_end" or not any(
+            not _is_structured_request(e, c) for c in e.get("tool_requests", [])
+        ):
             continue
         scope = _scope(e.get("checkpoint_ns"))
         if scope is None or not e.get("run_id"):
@@ -180,7 +223,7 @@ def _candidate_duplicates(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     first: dict[tuple[str, str, str], str] = {}
     duplicates = []
     for e in events:
-        if e["kind"] != "tool_intent":
+        if e["kind"] != "tool_intent" or _is_structured_event(e):
             continue
         scope = e.get("scope")
         fingerprint = e.get("arg_fingerprint")
@@ -244,7 +287,8 @@ def evaluate_events(events: list[dict[str, Any]]) -> dict[str, Any]:
         for field in ("unmatched_requests", "unmatched_results", "unscoped_requests", "unscoped_results")
         if link[field]
     ]
-    intents = [e for e in events if e["kind"] == "tool_intent"]
+    intents = [e for e in events if e["kind"] == "tool_intent" and not _is_structured_event(e)]
+    structured_intents = [e for e in events if e["kind"] == "tool_intent" and _is_structured_event(e)]
     invalid = [
         e for e in intents
         if not e.get("authorized") or not e.get("schema_valid") or e.get("malformed")
@@ -270,9 +314,11 @@ def evaluate_events(events: list[dict[str, Any]]) -> dict[str, Any]:
         "tool_result_linkage": _check(
             "fail" if link_errors else ("pass" if link["requested"] else "not_applicable"),
             link_errors if link_errors else (["no_tool_requests"] if not link["requested"] else []),
-            [e["event_id"] for e in events if e["kind"] == "llm_end" and e.get("tool_requests")]
+            [e["event_id"] for e in events if e["kind"] == "llm_end"
+             and any(not _is_structured_request(e, c) for c in e.get("tool_requests", []))]
             if link_errors else [],
         ),
+        "structured_output_schema": _structured_schema_rule(structured_intents),
         "model_tool_intent": _check(
             "fail" if model_call_errors else ("pass" if intents else "not_applicable"),
             model_call_errors if model_call_errors else (["no_model_tool_intents"] if not intents else []),
@@ -302,6 +348,11 @@ def evaluate_events(events: list[dict[str, Any]]) -> dict[str, Any]:
             "tool_calls_reused": link.get("cached", 0),
             "tool_calls_blocked": link.get("blocked", 0),
             "tool_calls_requested": link["requested"],
+            "structured_output_calls": len(structured_intents),
+            "structured_output_schema_validated": sum(
+                e.get("intent_kind") == "structured_output" and bool(e.get("schema_valid"))
+                for e in structured_intents
+            ),
             "candidate_duplicate_tool_calls": len(candidates),
         },
         "rules": rules,
