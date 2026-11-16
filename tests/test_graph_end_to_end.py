@@ -23,6 +23,7 @@ from tradingagents.dataflows import router
 from tradingagents.dataflows.vendors.yahoo import market as yahoo_market, snapshot
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph import trading_graph
+from tradingagents.memory.reflection import ReflectionResult, ExtractedExperience
 
 TRADE_DATE = "2026-01-09"
 
@@ -31,6 +32,8 @@ TRADE_DATE = "2026-01-09"
 TEXT = "Report.\n\n**Rating**: Overweight\n\nFINAL TRANSACTION PROPOSAL: **BUY**"
 
 STRUCTURED = {
+    ReflectionResult: ReflectionResult(reflection="Five days are too short to validate this thesis.",
+                                       experience=ExtractedExperience(valuable=False)),
     schemas.ResearchPlan: schemas.ResearchPlan(
         recommendation=schemas.PortfolioRating.OVERWEIGHT, rationale="r", strategic_actions="a"),
     schemas.TraderProposal: schemas.TraderProposal(action=schemas.TraderAction.BUY, reasoning="r"),
