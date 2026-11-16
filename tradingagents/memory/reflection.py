@@ -56,7 +56,8 @@ class Reflector:
         alpha_return: float,
         benchmark_name: str = "SPY",
         holding_days: int = 5,
-    ) -> ReflectionResult:
+        include_experience: bool = False,
+    ) -> ReflectionResult | str:
         """Produce both log reflection and reusable lesson without a second LLM call.
 
         Providers without structured output use a single plain-text call; only the
@@ -74,9 +75,10 @@ class Reflector:
                 result = self.structured_llm.invoke(messages)
                 parsed = ReflectionResult.model_validate(result)
                 if parsed.reflection.strip():
-                    return parsed
+                    return parsed if include_experience else parsed.reflection
                 raise ValueError("empty structured reflection")
             except Exception as exc:
                 logger.warning("Structured reflection failed; falling back to plain text: %s", exc)
         text = self.quick_thinking_llm.invoke(messages).content
-        return ReflectionResult(reflection=str(text))
+        fallback = ReflectionResult(reflection=str(text))
+        return fallback if include_experience else fallback.reflection
