@@ -330,7 +330,7 @@ class TradingAgentsGraph:
         返回成功结算和失败的项目。"""
         with run_config(self.config):
             return settlement.settle_pending(company_name, self.memory_log, self.reflector,
-                                            {**self.config, "_experience_store": self.experience_store})
+                                            {**self.config, "_experience_store": getattr(self, "experience_store", None)})
 
     def settle_all_pending(self, wait: bool = True) -> settlement.Settlement:
         """结算所有 ticker 中持仓观察期已结束的决策（#1445）。
@@ -340,7 +340,7 @@ class TradingAgentsGraph:
         设置 ``wait=False`` 时，不等待同一日志上已在执行的结算任务。"""
         with run_config(self.config):
             return settlement.settle_all_pending(self.memory_log, self.reflector,
-                                                 {**self.config, "_experience_store": self.experience_store},
+                                                 {**self.config, "_experience_store": getattr(self, "experience_store", None)},
                                                  wait=wait)
 
     def record_decision(self, company_name, trade_date, final_state):
