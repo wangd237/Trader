@@ -23,7 +23,7 @@ from tradingagents.dataflows import router
 from tradingagents.dataflows.vendors.yahoo import market as yahoo_market, snapshot
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph import trading_graph
-from tradingagents.memory.reflection import ReflectionResult, ExtractedExperience
+from tradingagents.memory.reflection import ExtractedExperience, ReflectionResult
 
 TRADE_DATE = "2026-01-09"
 
