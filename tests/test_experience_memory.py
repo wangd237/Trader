@@ -73,6 +73,50 @@ def test_store_idempotent_and_cross_ticker_retrieval(tmp_path):
 
 
 @pytest.mark.unit
+def test_retrieval_prefers_newer_experience_at_equal_relevance(tmp_path):
+    store = ExperienceStore({"memory_log_path": str(tmp_path / "trading_memory.md")})
+    # Identical lesson fields guarantee identical relevance scores.
+    for ticker, trade_date, resolved_at in [
+        ("AAPL", "2026-01-05", "2026-01-12"),
+        ("MSFT", "2026-03-05", "2026-03-12"),
+        ("NVDA", "2026-02-05", "2026-02-12"),
+    ]:
+        assert store.store(
+            ticker=ticker, trade_date=trade_date, resolved_at=resolved_at,
+            experience=_lesson(),
+        )
+
+    query = "Reduce downside risk when cash flow weakens; assess relative alpha"
+    found = store.retrieve(query, top_k=3)
+    assert [e["ticker"] for e in found] == ["MSFT", "NVDA", "AAPL"]
+    assert [e["ticker"] for e in store.retrieve(query, top_k=2)] == ["MSFT", "NVDA"]
+    # Historical runs cannot see a newer experience before its outcome is known.
+    assert [e["ticker"] for e in store.retrieve(
+        query, as_of="2026-02-20"
+    )] == ["NVDA", "AAPL"]
+
+
+@pytest.mark.unit
+def test_retrieval_relevance_still_outranks_recency(tmp_path):
+    store = ExperienceStore({"memory_log_path": str(tmp_path / "trading_memory.md")})
+    assert store.store(
+        ticker="AAPL", trade_date="2026-01-05", resolved_at="2026-01-12",
+        experience=_lesson(),
+    )
+    assert store.store(
+        ticker="MSFT", trade_date="2026-03-05", resolved_at="2026-03-12",
+        experience=_lesson(
+            scenario="Valuation requires cautious position sizing",
+            lesson="Avoid ignoring valuation when sizing a position",
+            boundary="Requires reliable valuation evidence",
+            tags=["valuation"],
+        ),
+    )
+    found = store.retrieve("Reduce downside risk when cash flow weakens", top_k=2)
+    assert [e["ticker"] for e in found] == ["AAPL"]
+
+
+@pytest.mark.unit
 def test_nonvaluable_experience_is_not_stored(tmp_path):
     store = ExperienceStore({"memory_log_path": str(tmp_path / "trading_memory.md")})
     assert not store.store(ticker="AAPL", trade_date="2026-01-01",
