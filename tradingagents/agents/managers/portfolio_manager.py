@@ -4,10 +4,6 @@ from __future__ import annotations
 
 import logging
 
-from tradingagents.memory.experience import build_experience_query, format_experiences
-
-logger = logging.getLogger(__name__)
-
 from tradingagents.agents.context import (
     get_instrument_context_from_state,
     get_language_instruction,
@@ -16,6 +12,9 @@ from tradingagents.agents.context import (
 from tradingagents.agents.rating import parse_rating
 from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.structured import NO_EXTERNAL_TOOLS, bind_structured, invoke_structured
+from tradingagents.memory.experience import build_experience_query, format_experiences
+
+logger = logging.getLogger(__name__)
 
 
 def create_portfolio_manager(llm, experience_store=None, memory_as_of=None):
