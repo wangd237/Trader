@@ -45,7 +45,7 @@ def _validate_trade_date(trade_date) -> str:
 # 不会改变分析结果的配置项：文件保存位置、是否启用检查点、
 # 以及提供商失败后的重试次数。
 _NOT_IN_SIGNATURE = frozenset({
-    "results_dir", "data_cache_dir", "memory_log_path", "checkpoint_enabled", "llm_max_retries",
+    "results_dir", "data_cache_dir", "memory_log_path", "experience_memory_path", "checkpoint_enabled", "llm_max_retries",
 })
 
 
