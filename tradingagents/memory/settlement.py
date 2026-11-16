@@ -2,6 +2,8 @@
 并将反思经验记录到 Memory Log。"""
 
 import logging
+
+from tradingagents.memory.reflection import ReflectionResult
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -146,6 +148,7 @@ def settle_pending(ticker: str, memory_log, reflector, config: dict, wait: bool 
                     alpha_return=alpha,
                     benchmark_name=benchmark,
                     holding_days=days,
+                    include_experience=True,
                 )
             except Exception as exc:
                 # 反思需要调用 LLM 提供商；如果遇到短暂故障，
@@ -153,9 +156,22 @@ def settle_pending(ticker: str, memory_log, reflector, config: dict, wait: bool 
                 logger.warning("Reflection failed for %s on %s: %s", ticker, entry["date"], exc)
                 result.failed.append((ticker, entry["date"], f"reflection failed: {exc}"))
                 continue
-            if memory_log.update_with_outcome(ticker, entry["date"], raw, alpha, days, reflection,
+            reflection_text = reflection.reflection if isinstance(reflection, ReflectionResult) else str(reflection)
+            if memory_log.update_with_outcome(ticker, entry["date"], raw, alpha, days, reflection_text,
                                               resolution_date=resolution_date):
                 result.settled.append((ticker, entry["date"]))
+                if isinstance(reflection, ReflectionResult) and reflection.experience.valuable:
+                    try:
+                        store = config.get("_experience_store")
+                        if store is not None:
+                            store.store(
+                                ticker=ticker, trade_date=entry["date"],
+                                resolved_at=resolution_date,
+                                experience=reflection.experience,
+                            )
+                    except Exception as exc:
+                        logger.warning("Experience write failed for %s on %s: %s",
+                                       ticker, entry["date"], exc)
     return result
 
 
