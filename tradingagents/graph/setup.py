@@ -218,6 +218,8 @@ class GraphSetup:
         max_tool_rounds: int,
         max_stagnant_tool_rounds: int = 3,
         reuse_historical_tool_results: bool = True,
+        experience_store=None,
+        memory_as_of=None,
     ):
         """使用必需的组件进行初始化。"""
         self.quick_thinking_llm = quick_thinking_llm
@@ -228,6 +230,8 @@ class GraphSetup:
             raise ValueError("max_stagnant_tool_rounds must be >= 0")
         self.max_stagnant_tool_rounds = max_stagnant_tool_rounds
         self.reuse_historical_tool_results = reuse_historical_tool_results
+        self.experience_store = experience_store
+        self.memory_as_of = memory_as_of
 
     def setup_graph(
         self, selected_analysts=("market", "social", "news", "fundamentals"), memory_node=None
@@ -262,7 +266,10 @@ class GraphSetup:
         aggressive_analyst = create_aggressive_debator(self.quick_thinking_llm)
         neutral_analyst = create_neutral_debator(self.quick_thinking_llm)
         conservative_analyst = create_conservative_debator(self.quick_thinking_llm)
-        portfolio_manager_node = create_portfolio_manager(self.deep_thinking_llm)
+        portfolio_manager_node = create_portfolio_manager(
+            self.deep_thinking_llm, experience_store=self.experience_store,
+            memory_as_of=self.memory_as_of,
+        )
 
         # 3. 创建主图
         workflow = StateGraph(AgentState)
