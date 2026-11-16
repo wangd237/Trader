@@ -4,11 +4,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tradingagents.memory.experience import ExperienceStore, build_experience_query, format_experiences
-from tradingagents.memory.reflection import ExtractedExperience, ReflectionResult, Reflector
-from tradingagents.memory import TradingMemoryLog, settlement
 from tradingagents.agents.managers.portfolio_manager import create_portfolio_manager
 from tradingagents.agents.schemas import PortfolioDecision, PortfolioRating
+from tradingagents.memory import TradingMemoryLog, settlement
+from tradingagents.memory.experience import (
+    ExperienceStore,
+    build_experience_query,
+    format_experiences,
+)
+from tradingagents.memory.reflection import ExtractedExperience, ReflectionResult, Reflector
 
 
 def _lesson(**overrides):
