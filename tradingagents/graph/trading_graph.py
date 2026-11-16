@@ -16,6 +16,7 @@ from tradingagents.dataflows.symbols import safe_ticker_component
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_tier_client, tier_provider
 from tradingagents.memory import TradingMemoryLog, settlement
+from tradingagents.memory.experience import ExperienceStore
 from tradingagents.memory.reflection import Reflector
 from tradingagents.reporting import write_report_tree
 
@@ -44,7 +45,7 @@ def _validate_trade_date(trade_date) -> str:
 # 不会改变分析结果的配置项：文件保存位置、是否启用检查点、
 # 以及提供商失败后的重试次数。
 _NOT_IN_SIGNATURE = frozenset({
-    "results_dir", "data_cache_dir", "memory_log_path", "checkpoint_enabled", "llm_max_retries",
+    "results_dir", "data_cache_dir", "memory_log_path", "experience_memory_path", "checkpoint_enabled", "llm_max_retries",
 })
 
 
@@ -79,6 +80,7 @@ class TradingAgentsGraph:
         self.quick_thinking_llm = create_tier_client(self.config, "quick", **extra).get_llm()
 
         self.memory_log = TradingMemoryLog(self.config)
+        self.experience_store = ExperienceStore(self.config)
 
         self.conditional_logic = ConditionalLogic(
             max_debate_rounds=self.config["max_debate_rounds"],
@@ -98,6 +100,8 @@ class TradingAgentsGraph:
             max_tool_rounds,
             max_stagnant_tool_rounds=self.config.get("max_stagnant_tool_rounds", 3),
             reuse_historical_tool_results=self.config.get("reuse_historical_tool_results", True),
+            experience_store=self.experience_store,
+            memory_as_of=self._memory_as_of,
         )
 
         self.propagator = Propagator(
@@ -310,8 +314,7 @@ class TradingAgentsGraph:
             logger.warning("Settling past decisions failed: %s", exc)
             note = f"Past decisions could not be settled this run ({type(exc).__name__}); they stay pending."
         try:
-            past_context = self.memory_log.get_past_context(
-                state["company_of_interest"], as_of=self._memory_as_of(state["trade_date"]))
+            past_context = ""  # Retrieval happens at Portfolio Manager after risk debate.
         except Exception as exc:
             logger.warning("Reading the memory log failed: %s", exc)
             past_context = ""
@@ -326,7 +329,8 @@ class TradingAgentsGraph:
         （例如回测批处理、定时任务），可以调用本方法立即尝试结算。
         返回成功结算和失败的项目。"""
         with run_config(self.config):
-            return settlement.settle_pending(company_name, self.memory_log, self.reflector, self.config)
+            return settlement.settle_pending(company_name, self.memory_log, self.reflector,
+                                            {**self.config, "_experience_store": getattr(self, "experience_store", None)})
 
     def settle_all_pending(self, wait: bool = True) -> settlement.Settlement:
         """结算所有 ticker 中持仓观察期已结束的决策（#1445）。
@@ -335,7 +339,9 @@ class TradingAgentsGraph:
         其决策可能永远处于待结算状态，后续也无法使用相应经验。
         设置 ``wait=False`` 时，不等待同一日志上已在执行的结算任务。"""
         with run_config(self.config):
-            return settlement.settle_all_pending(self.memory_log, self.reflector, self.config, wait=wait)
+            return settlement.settle_all_pending(self.memory_log, self.reflector,
+                                                 {**self.config, "_experience_store": getattr(self, "experience_store", None)},
+                                                 wait=wait)
 
     def record_decision(self, company_name, trade_date, final_state):
         """记录已完成运行：保存状态日志，并将决策写入记忆日志，

@@ -85,6 +85,7 @@ def build_default_config() -> dict:
         # 可选的已结算记忆条目数量上限；超过上限后清理最早的已结算记录。
         # 待结算记录永不清理。None 表示不限制数量。
         "memory_log_max_entries": None,
+        "experience_memory_path": None,
         # LLM 配置。
         "llm_provider": "openai",
         "deep_think_llm": "gpt-6-sol",
