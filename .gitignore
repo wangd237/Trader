@@ -225,3 +225,7 @@ reports/
 # Local benchmark traces and uncommitted market-data exports
 results/trajectory_baseline/
 benchmarks/trajectory/local_data/
+
+results/
+
+docs/
