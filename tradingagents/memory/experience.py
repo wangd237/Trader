@@ -166,5 +166,7 @@ class ExperienceStore:
                 continue
             score = 3 * len(common_tags) + 0.25 * len(common_terms)
             ranked.append((score, str(resolved_at or ""), str(item.get("id") or ""), item))
-        ranked.sort(key=lambda row: (-row[0], row[1], row[2]))
+        # Higher relevance wins; on a tie, prefer the more recently resolved lesson.
+        # ID provides a deterministic final tie-breaker.
+        ranked.sort(key=lambda row: (row[0], row[1], row[2]), reverse=True)
         return [item for _, _, _, item in ranked[:top_k]]
