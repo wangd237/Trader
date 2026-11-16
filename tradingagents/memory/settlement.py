@@ -2,14 +2,13 @@
 并将反思经验记录到 Memory Log。"""
 
 import logging
-
-from tradingagents.memory.reflection import ReflectionResult
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from tradingagents.dataflows.symbols import normalize_symbol
 from tradingagents.dataflows.vendors import ashare
 from tradingagents.dataflows.vendors.yahoo.market import get_closes as get_yahoo_closes
+from tradingagents.memory.reflection import ReflectionResult
 
 
 def get_closes(ticker: str, start_date: str, end_date: str):
