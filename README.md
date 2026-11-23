@@ -84,6 +84,20 @@ trader --ticker 600519.SH --date 2026-09-30 --analysts market,fundamentals,news,
 
 运行完成后，可在配置的结果目录中查看研究报告与执行记录。更多命令参数可通过 `trader --help` 查看。
 
+### LangSmith 观测（可选）
+
+项目基于 LangGraph，支持通过环境变量自动追踪工作流、节点、LLM 与工具调用，无需修改 Agent 代码。编辑本地 `.env`：
+
+```dotenv
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your_langsmith_api_key
+LANGSMITH_PROJECT=Trader
+```
+
+重新执行 `trader` 后，在 [LangSmith](https://smith.langchain.com/) 的 `Trader` 项目中查看执行轨迹、各节点耗时、Prompt/响应和模型返回的 Token 用量。关闭追踪时设置 `LANGSMITH_TRACING=false`。
+
+> LangSmith 是外部云端观测服务，追踪可能包含完整 Prompt、工具返回和持仓信息；涉及敏感数据时请关闭或配置脱敏。Token 用量是否显示取决于模型服务是否返回 Usage 信息。
+
 ## 项目结构
 
 ```text
