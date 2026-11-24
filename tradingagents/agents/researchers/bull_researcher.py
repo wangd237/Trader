@@ -1,9 +1,9 @@
-from tradingagents.agents.evidence import get_research_context_from_state
 from tradingagents.agents.context import (
     get_instrument_context_from_state,
     get_language_instruction,
     opponent_argument_or_opening,
 )
+from tradingagents.agents.evidence import get_research_context_from_state
 
 
 def create_bull_researcher(llm):
