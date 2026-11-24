@@ -121,11 +121,27 @@ def test_full_original_is_kept_when_structured_call_fails():
 
 @pytest.mark.unit
 def test_missing_report_is_labelled_and_does_not_require_coverage():
-    reports = {"market": REPORTS["market"]}
-    selection = _select_all(reports)
-    rendered, rejected = _render_verified(selection, _build_evidence_catalog(reports), reports)
+    reports = {"market": REPORTS["market"] + "\n\n" + "Additional market detail. " * 60}
+    catalog = _build_evidence_catalog(reports)
+    selection = ResearchEvidenceSelection(excerpts=[
+        EvidenceReference(ref=ref, kind="metric") for ref in list(catalog)[:2]
+    ])
+    rendered, rejected = _render_verified(selection, catalog, reports)
     assert not rejected
     assert "[fundamentals | missing]" in rendered
+    assert len(rendered) < len(reports["market"])
+
+
+@pytest.mark.unit
+def test_short_single_report_without_net_compression_falls_back():
+    reports = {"market": REPORTS["market"]}
+    selection = _select_all(reports)
+    node = create_research_evidence_node(_model_with_structured_result(selection))
+    state = _state(fundamentals_report="", news_report="", sentiment_report="")
+    result = node(state)
+    assert result["research_evidence_status"] == "fallback"
+    assert result["research_evidence_error"].startswith("no_net_compression:")
+    assert REPORTS["market"] in get_research_context_from_state({**state, **result})
 
 
 @pytest.mark.unit
