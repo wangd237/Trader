@@ -16,7 +16,8 @@ from datetime import datetime, timedelta
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from tradingagents.agents.context import get_instrument_context_from_state, get_language_instruction
+from tradingagents.agents.context import RESEARCH_ONLY_INSTRUCTION, get_instrument_context_from_state, get_research_language_instruction
+from tradingagents.agents.analysts.turn import sanitize_analyst_report
 from tradingagents.agents.post_screen import jev_screen
 from tradingagents.agents.schemas import SentimentReport, render_sentiment_report
 from tradingagents.agents.structured import (
@@ -66,7 +67,7 @@ def create_sentiment_analyst(llm):
                 "Do not invent a social Bullish/Bearish ratio or infer a bullish score from "
                 "missing evidence. Set confidence low where available sources are sparse. "
                 "Cite actual disclosure titles, dates and evidence; do not assume later events. "
-                f"\n\nOfficial disclosures:\n{news_block}\n" + get_language_instruction()
+                f"\n\nOfficial disclosures:\n{news_block}\n" + RESEARCH_ONLY_INSTRUCTION + get_research_language_instruction()
             )
         else:
             # 海外标的仍使用原有三源情绪逻辑。
@@ -121,6 +122,7 @@ def create_sentiment_analyst(llm):
             "Sentiment Analyst",
         )
 
+        report_text = sanitize_analyst_report(report_text)
         return {
             "messages": [AIMessage(content=report_text)],
             "sentiment_report": report_text,
@@ -198,4 +200,4 @@ Fill the following fields:
 - **confidence**: low / medium / high, based on data quality and sample size.
 - **narrative**: Full source-by-source breakdown, divergences, dominant narrative themes, catalysts and risks, and a markdown summary table of key sentiment signals (direction, source, supporting evidence).
 
-{get_language_instruction()}"""
+{RESEARCH_ONLY_INSTRUCTION + get_research_language_instruction()}"""
