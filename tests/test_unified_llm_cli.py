@@ -38,7 +38,7 @@ def test_unified_env_runs_cli_without_provider_prompts(monkeypatch):
 
 
 @pytest.mark.unit
-def test_env_example_exposes_only_three_llm_fields_and_two_run_settings():
+def test_env_example_exposes_llm_settings_and_opt_in_langsmith_tracing():
     from pathlib import Path
 
     env_file = Path(__file__).resolve().parents[1] / ".env.example"
@@ -49,9 +49,13 @@ def test_env_example_exposes_only_three_llm_fields_and_two_run_settings():
     assert list(settings) == [
         "LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL",
         "TRADINGAGENTS_OUTPUT_LANGUAGE", "TRADINGAGENTS_RESULTS_DIR",
+        "LANGSMITH_TRACING", "LANGSMITH_API_KEY", "LANGSMITH_PROJECT",
     ]
     assert settings["LLM_API_KEY"] == ""  # template must not ship a credential
     assert settings["LLM_MODEL"] == "deepseek-flash"
     assert settings["LLM_BASE_URL"] == "https://api.deepseek.com"
     assert settings["TRADINGAGENTS_OUTPUT_LANGUAGE"] == "Chinese"
     assert settings["TRADINGAGENTS_RESULTS_DIR"] == r"E:\Trader_Reports"
+    assert settings["LANGSMITH_TRACING"] == "false"
+    assert settings["LANGSMITH_API_KEY"] == ""
+    assert settings["LANGSMITH_PROJECT"] == "Trader"
