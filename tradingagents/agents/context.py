@@ -45,7 +45,6 @@ def opponent_argument_or_opening(text: str, opponent: str) -> str:
     return f"(The {opponent} has not spoken yet — open the debate with your own case.)"
 
 
-
 def opponent_argument_for_prompt(history: str, latest: str, opponent: str) -> str:
     """Avoid repeating an opponent's argument already present in the full debate history.
 
