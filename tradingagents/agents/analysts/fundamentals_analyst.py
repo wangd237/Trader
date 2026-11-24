@@ -71,10 +71,7 @@ def create_fundamentals_analyst(llm):
         result, report = take_turn(prompt, llm, TOOLS, state["messages"])
 
         if report:
-
-
             report = sanitize_analyst_report(report)
-
 
         return {
             "messages": [result],
