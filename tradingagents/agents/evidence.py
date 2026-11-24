@@ -95,10 +95,10 @@ def _build_evidence_catalog(reports: dict[str, str]) -> dict[str, EvidenceSpan]:
         pending_start = None
         pending_end = None
 
-        def flush():
+        def flush(spans=source_spans):
             nonlocal pending_start, pending_end
             if pending_start is not None:
-                source_spans.append((pending_start, pending_end))
+                spans.append((pending_start, pending_end))
                 pending_start = None
                 pending_end = None
 
