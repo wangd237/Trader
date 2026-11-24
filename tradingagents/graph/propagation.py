@@ -58,6 +58,9 @@ class Propagator:
             ),
             "market_report": "",
             "fundamentals_report": "",
+            "research_evidence": "",
+            "research_evidence_status": "fallback",
+            "research_evidence_error": "",
             "sentiment_report": "",
             "news_report": "",
         }

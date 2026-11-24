@@ -1,7 +1,11 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from tradingagents.agents.analysts.turn import take_turn
-from tradingagents.agents.context import get_instrument_context_from_state, get_language_instruction
+from tradingagents.agents.analysts.turn import sanitize_analyst_report, take_turn
+from tradingagents.agents.context import (
+    RESEARCH_ONLY_INSTRUCTION,
+    get_instrument_context_from_state,
+    get_research_language_instruction,
+)
 from tradingagents.agents.tools import (
     get_global_news,
     get_macro_indicators,
@@ -32,7 +36,7 @@ def create_news_analyst(llm):
         system_message = (
             f"You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Use the available tools: get_news(start_date, end_date) for news about the {asset_label} under analysis, get_global_news(curr_date, look_back_days, limit) for broader macroeconomic news, get_macro_indicators(indicator, curr_date, look_back_days) to ground macro commentary in actual data from FRED (e.g. 'cpi', 'core_pce', 'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve'), and get_prediction_markets(topic, limit) for live market-implied probabilities of forward-looking events (e.g. 'Fed rate cut', 'recession 2026', geopolitical or sector events). Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_language_instruction()
+            + RESEARCH_ONLY_INSTRUCTION + get_research_language_instruction()
         )
 
         if is_ashare:
@@ -42,7 +46,7 @@ def create_news_analyst(llm):
                 "Do not claim access to US FRED indicators, Reddit, or prediction markets "
                 "for domestic macro context. If no dated evidence is returned, say so. "
                 "The absence of disclosures does not imply positive or negative news."
-                + get_language_instruction()
+                + RESEARCH_ONLY_INSTRUCTION + get_research_language_instruction()
             )
 
         elif is_hk:
@@ -56,7 +60,7 @@ def create_news_analyst(llm):
                 "Cite actual HKEX announcement titles, release times, and URLs; "
                 "never invent market coverage or infer neutral sentiment merely "
                 "because no announcement exists. Point out evidence gaps."
-                + get_language_instruction()
+                + RESEARCH_ONLY_INSTRUCTION + get_research_language_instruction()
             )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -82,6 +86,9 @@ def create_news_analyst(llm):
         prompt = prompt.partial(instrument_context=instrument_context)
 
         result, report = take_turn(prompt, llm, active_tools, state["messages"])
+
+        if report:
+            report = sanitize_analyst_report(report)
 
         return {
             "messages": [result],

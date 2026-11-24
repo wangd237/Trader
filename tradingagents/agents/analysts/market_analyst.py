@@ -1,7 +1,11 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from tradingagents.agents.analysts.turn import take_turn
-from tradingagents.agents.context import get_instrument_context_from_state, get_language_instruction
+from tradingagents.agents.analysts.turn import sanitize_analyst_report, take_turn
+from tradingagents.agents.context import (
+    RESEARCH_ONLY_INSTRUCTION,
+    get_instrument_context_from_state,
+    get_research_language_instruction,
+)
 from tradingagents.agents.tools import get_indicators, get_stock_data, get_verified_market_snapshot
 
 # 分析师可调用的工具清单；工具节点也由同一元组构建。
@@ -49,7 +53,7 @@ Before writing the final report, call get_verified_market_snapshot for this tick
 
 Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
-            + get_language_instruction()
+            + RESEARCH_ONLY_INSTRUCTION + get_research_language_instruction()
         )
 
         from tradingagents.dataflows.vendors import ashare
@@ -90,6 +94,9 @@ Write a very detailed and nuanced report of the trends you observe. Provide spec
         prompt = prompt.partial(instrument_context=instrument_context)
 
         result, report = take_turn(prompt, llm, TOOLS, state["messages"])
+
+        if report:
+            report = sanitize_analyst_report(report)
 
         return {
             "messages": [result],

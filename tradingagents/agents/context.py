@@ -33,6 +33,29 @@ def get_language_instruction() -> str:
     )
 
 
+RESEARCH_ONLY_INSTRUCTION = (
+    " RESEARCH-ONLY HANDOFF: Report verified facts, dated market signals, evidence, "
+    "uncertainty and limitations. Interpret trends and risks, but do not assign "
+    "buy/sell/hold or overweight/underweight investment ratings; do not recommend "
+    "trades, entry/exit actions, stop-loss orders, or position sizes. "
+    "Research Manager, Trader and Portfolio Manager own those decisions. "
+    "Do not write an investment rating or transaction proposal section."
+)
+
+
+def get_research_language_instruction() -> str:
+    """Like the decision language directive, but without inviting rating fields."""
+    from tradingagents.dataflows.config import get_config
+
+    lang = get_config().get("output_language", "English")
+    if lang.strip().lower() == "english":
+        return ""
+    return (
+        f" Write the research report in {lang}; preserve source units, tickers and "
+        "schema-defined machine-readable labels without adding trading recommendations."
+    )
+
+
 def opponent_argument_or_opening(text: str, opponent: str) -> str:
     """返回对手最近一次论点；若为空则返回明确的开场标记。
 

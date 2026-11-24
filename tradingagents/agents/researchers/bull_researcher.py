@@ -2,8 +2,8 @@ from tradingagents.agents.context import (
     get_instrument_context_from_state,
     get_language_instruction,
     opponent_argument_or_opening,
-    report_or_absent,
 )
+from tradingagents.agents.evidence import get_research_context_from_state
 
 
 def create_bull_researcher(llm):
@@ -15,18 +15,10 @@ def create_bull_researcher(llm):
         current_response = opponent_argument_or_opening(
             investment_debate_state.get("current_response", ""), "bear analyst"
         )
-        market_research_report = report_or_absent(state["market_report"], "market")
-        sentiment_report = report_or_absent(state["sentiment_report"], "sentiment")
-        news_report = report_or_absent(state["news_report"], "news")
-        fundamentals_report = report_or_absent(state["fundamentals_report"], "fundamentals")
+        research_context = get_research_context_from_state(state)
         instrument_context = get_instrument_context_from_state(state)
         asset_type = state.get("asset_type", "stock")
         target_label = "stock" if asset_type == "stock" else "asset"
-        fundamentals_label = (
-            "Company fundamentals report"
-            if asset_type == "stock"
-            else "Asset fundamentals report (may be unavailable for crypto)"
-        )
         prompt = (
     f"""你是一名看多分析师（多头），主张投资 {target_label}。你的任务是建立一个有力的、基于充分证据的论点，重点强调其增长潜力、竞争优势和积极的市场指标。请充分利用所提供的研究和数据，有效化解疑虑并有力反驳看跌（空头）观点。
 
@@ -39,10 +31,7 @@ def create_bull_researcher(llm):
 
 可用资源：
 {instrument_context}
-市场研究报告：{market_research_report}
-社交媒体情绪报告：{sentiment_report}
-最新全球时事新闻：{news_report}
-{fundamentals_label}：{fundamentals_report}
+结构化研究证据（来自原始研究报告）：\n{research_context}
 辩论对话历史记录：{history}
 空方最新论点：{current_response}
 

@@ -26,6 +26,7 @@ from tradingagents.agents.analysts.turn import (
     WRAP_UP,
     WRAP_UP_REPEATED,
 )
+from tradingagents.agents.evidence import create_research_evidence_node
 from tradingagents.agents.state import AgentState
 from tradingagents.dataflows.date_window import is_historical
 
@@ -258,6 +259,7 @@ class GraphSetup:
             "fundamentals": lambda: create_fundamentals_analyst(self.quick_thinking_llm),
         }
 
+        research_evidence_node = create_research_evidence_node(self.quick_thinking_llm)
         bull_researcher_node = create_bull_researcher(self.quick_thinking_llm)
         bear_researcher_node = create_bear_researcher(self.quick_thinking_llm)
         research_manager_node = create_research_manager(self.deep_thinking_llm)
@@ -281,6 +283,7 @@ class GraphSetup:
                                              self.reuse_historical_tool_results))
 
         # 5. 将研究团队和交易团队的节点添加到主图中
+        workflow.add_node("Research Evidence", research_evidence_node)
         workflow.add_node("Bull Researcher", bull_researcher_node)
         workflow.add_node("Bear Researcher", bear_researcher_node)
         workflow.add_node("Research Manager", research_manager_node)
@@ -299,7 +302,8 @@ class GraphSetup:
             first_steps.append("Memory Log")
         for node in first_steps:
             workflow.add_edge(START, node)
-        workflow.add_edge(first_steps, "Bull Researcher")
+        workflow.add_edge(first_steps, "Research Evidence")
+        workflow.add_edge("Research Evidence", "Bull Researcher")
 
         # 研究辩论的两条边共用完整的 DEBATE_PATH_MAP（#1088）。
         for debate_node in ("Bull Researcher", "Bear Researcher"):

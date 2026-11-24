@@ -1,6 +1,7 @@
 """执行分析师的一轮工具交互；工具轮数耗尽后执行收尾轮次。"""
 
 import json
+import re
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -21,6 +22,21 @@ BLOCKED_REPEAT_RESULT = (
     "SKIPPED_REPEAT: This identical tool request was blocked after the corrective "
     "warning. No tool was executed."
 )
+
+
+_DECISION_LINE = re.compile(
+    r"^\s*(?:#{1,6}\s*)?(?:\*\*)?"
+    r"(?:Rating|FINAL TRANSACTION PROPOSAL|投资评级|交易建议|操作建议)"
+    r"(?:\*\*)?\s*[:：].*$",
+    re.IGNORECASE,
+)
+
+
+def sanitize_analyst_report(text: str) -> str:
+    """Remove explicit decision fields without altering dated research observations."""
+    return "\n".join(
+        line for line in text.splitlines() if not _DECISION_LINE.match(line)
+    ).strip()
 
 
 def take_turn(prompt, llm, tools, messages):
