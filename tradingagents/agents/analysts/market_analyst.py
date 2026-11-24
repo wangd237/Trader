@@ -92,10 +92,7 @@ Write a very detailed and nuanced report of the trends you observe. Provide spec
         result, report = take_turn(prompt, llm, TOOLS, state["messages"])
 
         if report:
-
-
             report = sanitize_analyst_report(report)
-
 
         return {
             "messages": [result],
