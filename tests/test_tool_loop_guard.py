@@ -296,7 +296,7 @@ def test_corrected_model_can_write_report_without_forced_wrapup(tmp_path, monkey
         str(h[-1].content).startswith("Tool access is now disabled")
         for h in model.last_turns
     )
-    assert state["market_report"] == e2e.TEXT
+    assert state["market_report"] == "Report."
     assert rating == "Overweight"
 
 
@@ -337,9 +337,9 @@ def test_corrected_model_can_change_tools_and_continue(tmp_path, monkeypatch, of
     state, rating = graph.propagate("NVDA", "2026-01-09")
     assert len(model.changes) == 3
     assert len(model.tool_turns) == 9
-    assert state["market_report"] == e2e.TEXT
-    assert state["news_report"] == e2e.TEXT
-    assert state["fundamentals_report"] == e2e.TEXT
+    assert state["market_report"] == "Report."
+    assert state["news_report"] == "Report."
+    assert state["fundamentals_report"] == "Report."
     assert rating == "Overweight"
 
 
