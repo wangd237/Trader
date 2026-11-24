@@ -55,6 +55,7 @@ class AgentState(MessagesState):
     fundamentals_report: Annotated[str, "Report from the Fundamentals Analyst"]
     research_evidence: Annotated[str, "Verified shared evidence excerpts for debate agents"]
     research_evidence_status: Annotated[str, "ready or fallback; source reports remain untouched"]
+    research_evidence_error: Annotated[str, "Short machine-readable fallback reason, empty on success"]
 
     # 研究团队辩论阶段。
     investment_debate_state: Annotated[
