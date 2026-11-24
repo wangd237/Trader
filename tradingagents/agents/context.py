@@ -45,6 +45,20 @@ def opponent_argument_or_opening(text: str, opponent: str) -> str:
     return f"(The {opponent} has not spoken yet — open the debate with your own case.)"
 
 
+
+def opponent_argument_for_prompt(history: str, latest: str, opponent: str) -> str:
+    """Avoid repeating an opponent's argument already present in the full debate history.
+
+    The history is authoritative and retains the original argument unchanged.
+    Still include a standalone latest argument when older/incomplete states omit it
+    from history; when neither exists, keep the explicit first-turn opening marker.
+    """
+    latest = (latest or "").strip()
+    if latest and latest in (history or ""):
+        return "(already included in the debate history above)"
+    return opponent_argument_or_opening(latest, opponent)
+
+
 def _clean_identity_value(value: Any) -> str | None:
     """返回去除首尾空白的字符串；为空或占位文本时返回 None。"""
     if not isinstance(value, str):
