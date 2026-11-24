@@ -1,7 +1,11 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.analysts.turn import sanitize_analyst_report, take_turn
-from tradingagents.agents.context import RESEARCH_ONLY_INSTRUCTION, get_instrument_context_from_state, get_research_language_instruction
+from tradingagents.agents.context import (
+    RESEARCH_ONLY_INSTRUCTION,
+    get_instrument_context_from_state,
+    get_research_language_instruction,
+)
 from tradingagents.agents.tools import (
     get_global_news,
     get_macro_indicators,
