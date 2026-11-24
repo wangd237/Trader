@@ -17,9 +17,8 @@ from tradingagents.agents.evidence import (
 from tradingagents.agents.researchers.bull_researcher import create_bull_researcher
 from tradingagents.agents.risk_mgmt.aggressive_debator import create_aggressive_debator
 
-
 REPORTS = {
-    "market": "Price 344 HKD on 2026-11-20, RSI 26.79. Market trend weak." + " Chart details." * 20,
+    "market": "Price 344 HKD on 2026-11-20, RSI 26.79. Market trend weak." + " Chart details." * 48,
     "fundamentals": "H1 revenue RMB 3964 billion? Unit UNVERIFIED. Q3 figures unavailable." + " Filing detail." * 20,
     "news": "Q3 results announced 2026-11-18. Full PDF was not retrieved." + " Announcement detail." * 20,
     "sentiment": "Social feeds unavailable; confidence low, not neutral evidence." + " Coverage detail." * 20,
@@ -131,7 +130,8 @@ def test_valid_summary_is_shared_by_bull_and_risk_without_raw_reports():
     for prompt in captured:
         assert "[market@0" in prompt
         assert "Market trend weak." not in prompt  # non-selected raw material stays outside
-        assert "Trader proposal" in prompt or "Bull" in prompt
+    assert "Trader proposal" not in captured[0]
+    assert "Trader proposal" in captured[1]
 
 
 @pytest.mark.unit
