@@ -25,20 +25,16 @@ BLOCKED_REPEAT_RESULT = (
 
 
 _DECISION_LINE = re.compile(
-    r"^\\s*(?:#{1,6}\\s*)?(?:\\*\\*)?"
+    r"^\s*(?:#{1,6}\s*)?(?:\*\*)?"
     r"(?:Rating|FINAL TRANSACTION PROPOSAL|投资评级|交易建议|操作建议)"
-    r"(?:\\*\\*)?\\s*[:：].*$",
+    r"(?:\*\*)?\s*[:：].*$",
     re.IGNORECASE,
 )
 
 
 def sanitize_analyst_report(text: str) -> str:
-    """Remove explicit trade-decision fields from reports, not market observations.
-
-    This is a narrow deterministic safeguard. Free-form recommendations are primarily
-    constrained by the analyst prompt, not magically made safe by this filter.
-    """
-    return "\\n".join(
+    """Remove explicit decision fields without altering dated research observations."""
+    return "\n".join(
         line for line in text.splitlines() if not _DECISION_LINE.match(line)
     ).strip()
 
