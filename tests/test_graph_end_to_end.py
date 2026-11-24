@@ -268,7 +268,7 @@ def test_an_analyst_that_keeps_calling_tools_writes_its_report_at_the_limit(tmp_
 
     assert len(model.tool_turns) == 3 * 3   # three tool-using analysts, three rounds each
     for key in ("market_report", "news_report", "fundamentals_report"):
-        assert final_state[key] == TEXT
+        assert final_state[key] == "Report."  # analyst reports exclude trade decisions
     assert rating == "Overweight"
 
 
