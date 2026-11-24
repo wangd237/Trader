@@ -53,6 +53,8 @@ class AgentState(MessagesState):
     sentiment_report: Annotated[str, "Report from the Sentiment Analyst"]
     news_report: Annotated[str, "Report from the News Analyst on company and world news"]
     fundamentals_report: Annotated[str, "Report from the Fundamentals Analyst"]
+    research_evidence: Annotated[str, "Verified shared evidence excerpts for debate agents"]
+    research_evidence_status: Annotated[str, "ready or fallback; source reports remain untouched"]
 
     # 研究团队辩论阶段。
     investment_debate_state: Annotated[
