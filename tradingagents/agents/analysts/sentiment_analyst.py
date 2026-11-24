@@ -16,8 +16,12 @@ from datetime import datetime, timedelta
 from langchain_core.messages import AIMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from tradingagents.agents.context import RESEARCH_ONLY_INSTRUCTION, get_instrument_context_from_state, get_research_language_instruction
 from tradingagents.agents.analysts.turn import sanitize_analyst_report
+from tradingagents.agents.context import (
+    RESEARCH_ONLY_INSTRUCTION,
+    get_instrument_context_from_state,
+    get_research_language_instruction,
+)
 from tradingagents.agents.post_screen import jev_screen
 from tradingagents.agents.schemas import SentimentReport, render_sentiment_report
 from tradingagents.agents.structured import (
