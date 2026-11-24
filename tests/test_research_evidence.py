@@ -19,10 +19,10 @@ from tradingagents.agents.risk_mgmt.aggressive_debator import create_aggressive_
 
 
 REPORTS = {
-    "market": "Price 344 HKD on 2026-11-20, RSI 26.79. Market trend weak.",
-    "fundamentals": "H1 revenue RMB 3964 billion? Unit UNVERIFIED. Q3 figures unavailable.",
-    "news": "Q3 results announced 2026-11-18. Full PDF was not retrieved.",
-    "sentiment": "Social feeds unavailable; confidence low, not neutral evidence.",
+    "market": "Price 344 HKD on 2026-11-20, RSI 26.79. Market trend weak." + " Chart details." * 20,
+    "fundamentals": "H1 revenue RMB 3964 billion? Unit UNVERIFIED. Q3 figures unavailable." + " Filing detail." * 20,
+    "news": "Q3 results announced 2026-11-18. Full PDF was not retrieved." + " Announcement detail." * 20,
+    "sentiment": "Social feeds unavailable; confidence low, not neutral evidence." + " Coverage detail." * 20,
 }
 
 
@@ -72,7 +72,7 @@ def test_summary_verifies_exact_source_quotes_and_is_compact():
     ])
     text = _render_verified(examples, REPORTS)
     assert "market@0" in text
-    assert "confidence low" not in text  # only quoted fragments, no generated facts
+    assert "not neutral evidence" not in text  # the unselected tail remains outside the summary
     assert len(text) < sum(map(len, REPORTS.values()))
     assert "Source" not in text  # no synthetic market claims
 
